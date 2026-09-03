@@ -1,7 +1,7 @@
 {
   "name": "Boundary Point Finder",
   "short_name": "BdryFinder",
-  "start_url": "./boundary_finder.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#1e3a2f",

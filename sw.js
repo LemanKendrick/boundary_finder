@@ -5,7 +5,7 @@ const CACHE_NAME = 'boundary-finder-v1';
 
 const SHELL_FILES = [
   './',
-  'boundary_finder.html',
+  'index.html',
   'manifest.json',
   'icon.svg'
 ];
@@ -47,7 +47,7 @@ self.addEventListener('fetch', event => {
       }).catch(() => {
         // Navigation fallback: if offline and page not cached, serve the shell.
         if (event.request.mode === 'navigate') {
-          return caches.match('boundary_finder.html');
+          return caches.match('index.html');
         }
       });
     })
