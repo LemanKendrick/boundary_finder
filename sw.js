@@ -1,20 +1,25 @@
 // Boundary Point Finder — service worker
 // Cache-invalidation pattern: bump CACHE_NAME on every deploy that changes
 // any of the files below. Old caches are purged in 'activate'.
-const CACHE_NAME = 'boundary-finder-v3';
+const CACHE_NAME = 'boundary-finder-v4';
 
 const SHELL_FILES = [
   './',
   'index.html',
   'manifest.json',
-  'icon.svg'
+  'icon.svg',
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(SHELL_FILES))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.all(
+        SHELL_FILES.map(url =>
+          cache.add(url).catch(err => console.warn('Precache failed for', url, err))
+        )
+      )
+    ).then(() => self.skipWaiting())
   );
 });
 

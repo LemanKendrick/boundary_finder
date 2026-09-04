@@ -6,6 +6,7 @@
 <title>Boundary Point Finder</title>
 <meta name="theme-color" content="#1e3a2f">
 <link rel="manifest" href="manifest.json">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --bg:#f4f2ec; --panel:#ffffff; --ink:#1a1a18; --muted:#6b6a63;
@@ -142,6 +143,10 @@
   <section id="view-capture" class="view active">
     <div class="panel">
       <h2>New Point</h2>
+      <label>Boundary</label>
+      <select id="boundarySelect"></select>
+      <input type="text" id="newBoundaryName" placeholder="New boundary name (e.g. Smith_Tract)" style="display:none; margin-top:6px;">
+
       <label>Point name / label</label>
       <input type="text" id="pointName" placeholder="e.g. NE corner, rear pin">
 
@@ -178,10 +183,13 @@
     <div class="panel">
       <div class="flex-between">
         <h2 style="margin:0;">Saved Points</h2>
-        <div class="row" style="max-width:200px;">
-          <button class="small-btn" id="btnExport">Export</button>
-          <button class="small-btn" id="btnImport">Import</button>
-        </div>
+      </div>
+      <label style="margin-top:4px;">Filter by boundary</label>
+      <select id="boundaryFilter" style="width:100%;"></select>
+      <div class="row" style="margin-top:10px;">
+        <button class="small-btn" id="btnExportZip">📦 Export ZIP</button>
+        <button class="small-btn" id="btnExport">Backup JSON</button>
+        <button class="small-btn" id="btnImport">Import</button>
       </div>
       <input type="file" id="importFile" accept="application/json" style="display:none">
     </div>
@@ -193,6 +201,7 @@
     <div class="panel">
       <button class="small-btn" id="btnBackToList">← Back to list</button>
       <h2 id="detailName" style="margin-top:10px;"></h2>
+      <div class="pc-meta" id="detailBoundaryMeta" style="margin-bottom:6px;"></div>
       <div class="gps-readout" id="detailGps"></div>
       <div class="photothumbs" id="detailPhotos"></div>
       <p id="detailNotes" style="white-space:pre-wrap; font-size:.92rem;"></p>
@@ -255,8 +264,9 @@
    ============================================================ */
 
 const DB_NAME = 'boundaryFinderDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'points';
+const BOUNDARY_STORE = 'boundaries';
 let db = null;
 
 function openDB(){
@@ -266,6 +276,9 @@ function openDB(){
       const _db = e.target.result;
       if(!_db.objectStoreNames.contains(STORE)){
         _db.createObjectStore(STORE, { keyPath: 'id' });
+      }
+      if(!_db.objectStoreNames.contains(BOUNDARY_STORE)){
+        _db.createObjectStore(BOUNDARY_STORE, { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => { db = e.target.result; resolve(db); };
@@ -293,6 +306,22 @@ function dbGetAll(){
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readonly');
     const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = (e) => reject(e);
+  });
+}
+function dbPutBoundary(b){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BOUNDARY_STORE, 'readwrite');
+    tx.objectStore(BOUNDARY_STORE).put(b);
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e);
+  });
+}
+function dbGetAllBoundaries(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BOUNDARY_STORE, 'readonly');
+    const req = tx.objectStore(BOUNDARY_STORE).getAll();
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = (e) => reject(e);
   });
@@ -329,6 +358,9 @@ function bearingTo(lat1, lon1, lat2, lon2){
 function compassDirName(deg){
   const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   return dirs[Math.round(deg/22.5) % 16];
+}
+function sanitizeFilename(s){
+  return (s || 'boundary').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'boundary';
 }
 
 // downscale + compress a File/Blob image to keep IndexedDB size sane
@@ -382,6 +414,62 @@ function showView(name){
 document.querySelectorAll('.navbtn').forEach(b=>{
   b.onclick = () => showView(b.dataset.view);
 });
+
+// ============================================================
+// BOUNDARIES
+// ============================================================
+let allBoundaries = [];
+const boundarySelect = document.getElementById('boundarySelect');
+const newBoundaryName = document.getElementById('newBoundaryName');
+const boundaryFilter = document.getElementById('boundaryFilter');
+
+async function loadBoundaries(){
+  allBoundaries = (await dbGetAllBoundaries()).sort((a,b) => a.name.localeCompare(b.name));
+  return allBoundaries;
+}
+
+function populateBoundarySelect(){
+  const lastId = localStorage.getItem('bf_lastBoundary');
+  boundarySelect.innerHTML =
+    allBoundaries.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('') +
+    `<option value="__new__">➕ New boundary…</option>`;
+  if(allBoundaries.length === 0){
+    boundarySelect.value = '__new__';
+  } else if(lastId && allBoundaries.some(b => b.id === lastId)){
+    boundarySelect.value = lastId;
+  } else {
+    boundarySelect.value = allBoundaries[0].id;
+  }
+  newBoundaryName.style.display = boundarySelect.value === '__new__' ? 'block' : 'none';
+}
+boundarySelect.onchange = () => {
+  newBoundaryName.style.display = boundarySelect.value === '__new__' ? 'block' : 'none';
+};
+
+function populateBoundaryFilter(){
+  const current = boundaryFilter.value;
+  boundaryFilter.innerHTML =
+    `<option value="">All boundaries</option>` +
+    allBoundaries.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+  if(current && allBoundaries.some(b => b.id === current)) boundaryFilter.value = current;
+}
+boundaryFilter.onchange = () => renderList();
+
+// resolves the boundary to save against: existing selection, or creates
+// (or reuses, if the typed name matches an existing one) a new boundary
+async function resolveBoundaryForSave(){
+  if(boundarySelect.value !== '__new__'){
+    return allBoundaries.find(b => b.id === boundarySelect.value) || null;
+  }
+  const typed = newBoundaryName.value.trim();
+  if(!typed){ toast('Enter a name for the new boundary.'); return null; }
+  const existing = allBoundaries.find(b => b.name.toLowerCase() === typed.toLowerCase());
+  if(existing) return existing;
+  const b = { id: uid(), name: typed, createdAt: Date.now() };
+  await dbPutBoundary(b);
+  await loadBoundaries();
+  return b;
+}
 
 // ============================================================
 // CAPTURE
@@ -471,9 +559,18 @@ function renderCapturePhotos(){
 
 btnSavePoint.onclick = async () => {
   if(!bestFix){ toast('Get a GPS fix first.'); return; }
-  const name = document.getElementById('pointName').value.trim() || ('Point ' + new Date().toLocaleDateString());
+  const boundary = await resolveBoundaryForSave();
+  if(!boundary) return;
+
+  const existingForBoundary = (await dbGetAll()).filter(p => p.boundaryId === boundary.id);
+  const nextPointNumber = existingForBoundary.reduce((max,p) => Math.max(max, p.pointNumber||0), 0) + 1;
+
+  const name = document.getElementById('pointName').value.trim() || ('Point ' + nextPointNumber);
   const point = {
     id: uid(),
+    boundaryId: boundary.id,
+    boundaryName: boundary.name,
+    pointNumber: nextPointNumber,
     name,
     lat: bestFix.lat,
     lon: bestFix.lon,
@@ -485,15 +582,21 @@ btnSavePoint.onclick = async () => {
     createdAt: Date.now()
   };
   await dbPut(point);
-  toast('Point saved: ' + name);
+  localStorage.setItem('bf_lastBoundary', boundary.id);
+  toast(`Point saved: ${boundary.name} · pt ${nextPointNumber}`);
 
-  // reset capture form
+  // reset capture form (keep boundary selected for the next point on the same job)
   document.getElementById('pointName').value = '';
   document.getElementById('notes').value = '';
   document.getElementById('confidence').value = 'good';
   capturePhotos = []; renderCapturePhotos();
   gpsSamples = []; bestFix = null; updateGpsReadout();
   btnStartGps.textContent = 'Start GPS Lock';
+  await loadBoundaries();
+  populateBoundarySelect();
+  boundarySelect.value = boundary.id;
+  newBoundaryName.value = '';
+  newBoundaryName.style.display = 'none';
 
   showView('list');
 };
@@ -505,23 +608,33 @@ let allPoints = [];
 let currentDetailId = null;
 
 async function renderList(){
-  allPoints = (await dbGetAll()).sort((a,b) => b.createdAt - a.createdAt);
+  await loadBoundaries();
+  populateBoundaryFilter();
+  const filterId = boundaryFilter.value;
+  allPoints = await dbGetAll();
+  let visible = filterId ? allPoints.filter(p => p.boundaryId === filterId) : allPoints.slice();
+  if(filterId){
+    visible.sort((a,b) => (a.pointNumber||0) - (b.pointNumber||0));
+  } else {
+    visible.sort((a,b) => (a.boundaryName||'').localeCompare(b.boundaryName||'') || (a.pointNumber||0)-(b.pointNumber||0));
+  }
   const wrap = document.getElementById('pointList');
   wrap.innerHTML = '';
-  if(allPoints.length === 0){
+  if(visible.length === 0){
     wrap.innerHTML = '<div class="empty-msg">No saved points yet. Use "New" to add one.</div>';
     return;
   }
-  allPoints.forEach(p => {
+  visible.forEach(p => {
     const card = document.createElement('div');
     card.className = 'pointcard';
     const date = new Date(p.createdAt).toLocaleDateString();
+    const boundaryTag = p.boundaryName ? `${escapeHtml(p.boundaryName)} · pt ${p.pointNumber||'?'}` : '(no boundary)';
     card.innerHTML = `
       <div class="pc-top">
         <div class="pc-name">${escapeHtml(p.name)}</div>
         <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span>
       </div>
-      <div class="pc-meta">${date} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.confidence}</div>
+      <div class="pc-meta">${boundaryTag} · ${date} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.confidence}</div>
       <div class="pc-thumbs">${(p.photos||[]).slice(0,4).map(src=>`<img src="${src}">`).join('')}</div>
     `;
     card.onclick = () => openDetail(p.id);
@@ -662,6 +775,8 @@ function openDetail(id){
   const p = allPoints.find(x => x.id === id);
   if(!p) return;
   document.getElementById('detailName').textContent = p.name;
+  document.getElementById('detailBoundaryMeta').textContent =
+    p.boundaryName ? `${p.boundaryName} · Point #${p.pointNumber||'?'}` : '(no boundary assigned)';
   document.getElementById('detailGps').innerHTML =
     `Lat: ${p.lat.toFixed(7)}\nLon: ${p.lon.toFixed(7)}\n` +
     `Accuracy: <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span> ` +
@@ -697,7 +812,7 @@ document.getElementById('btnExport').onclick = async () => {
   a.href = URL.createObjectURL(blob);
   a.download = 'boundary_points_' + new Date().toISOString().slice(0,10) + '.json';
   a.click();
-  toast('Exported ' + pts.length + ' point(s).');
+  toast('Backed up ' + pts.length + ' point(s).');
 };
 document.getElementById('btnImport').onclick = () => document.getElementById('importFile').click();
 document.getElementById('importFile').onchange = async () => {
@@ -707,11 +822,70 @@ document.getElementById('importFile').onchange = async () => {
     const text = await f.text();
     const pts = JSON.parse(text);
     if(!Array.isArray(pts)) throw new Error('bad format');
+    // recreate any boundaries referenced by imported points that don't exist locally yet
+    const knownIds = new Set((await dbGetAllBoundaries()).map(b => b.id));
+    for(const p of pts){
+      if(p.boundaryId && p.boundaryName && !knownIds.has(p.boundaryId)){
+        await dbPutBoundary({ id: p.boundaryId, name: p.boundaryName, createdAt: p.createdAt || Date.now() });
+        knownIds.add(p.boundaryId);
+      }
+    }
     for(const p of pts){ if(p.id) await dbPut(p); }
     toast('Imported ' + pts.length + ' point(s).');
     renderList();
   }catch(e){ toast('Import failed: invalid file.'); }
   document.getElementById('importFile').value = '';
+};
+
+document.getElementById('btnExportZip').onclick = async () => {
+  if(typeof JSZip === 'undefined'){ toast('ZIP library failed to load — check your connection.'); return; }
+  const filterId = boundaryFilter.value;
+  const pts = await dbGetAll();
+  const boundaries = await dbGetAllBoundaries();
+  const scopeBoundaries = filterId ? boundaries.filter(b => b.id === filterId) : boundaries;
+  if(scopeBoundaries.length === 0){ toast('No boundaries to export.'); return; }
+
+  const zip = new JSZip();
+  let totalPhotos = 0;
+
+  for(const b of scopeBoundaries){
+    const folderName = sanitizeFilename(b.name);
+    const folder = zip.folder(folderName);
+    const boundaryPoints = pts.filter(p => p.boundaryId === b.id).sort((a,c) => (a.pointNumber||0)-(c.pointNumber||0));
+    const manifest = [];
+    for(const p of boundaryPoints){
+      const photoFiles = [];
+      (p.photos||[]).forEach((dataUrl, i) => {
+        const base64 = (dataUrl.split(',')[1]) || '';
+        const filename = `${folderName}_pt${p.pointNumber}_${i+1}.jpg`;
+        folder.file(filename, base64, { base64: true });
+        photoFiles.push(filename);
+        totalPhotos++;
+      });
+      manifest.push({
+        pointNumber: p.pointNumber, name: p.name, lat: p.lat, lon: p.lon,
+        accuracy: p.accuracy, confidence: p.confidence, notes: p.notes,
+        createdAt: new Date(p.createdAt).toISOString(), photos: photoFiles
+      });
+    }
+    folder.file('points.json', JSON.stringify(manifest, null, 2));
+  }
+
+  if(totalPhotos === 0 && scopeBoundaries.every(b => pts.every(p => p.boundaryId !== b.id))){
+    toast('No points found for that boundary.');
+    return;
+  }
+
+  toast('Building ZIP…');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const zipName = filterId
+    ? sanitizeFilename(scopeBoundaries[0].name) + '.zip'
+    : 'all_boundaries_' + new Date().toISOString().slice(0,10) + '.zip';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = zipName;
+  a.click();
+  toast('Exported ' + zipName);
 };
 
 // ============================================================
@@ -804,7 +978,9 @@ function updateNav(lat, lon, acc){
 // ============================================================
 // INIT
 // ============================================================
-openDB().then(() => {
+openDB().then(async () => {
+  await loadBoundaries();
+  populateBoundarySelect();
   renderList();
 }).catch(e => {
   console.error(e);
