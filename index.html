@@ -185,7 +185,10 @@
         <h2 style="margin:0;">Saved Points</h2>
       </div>
       <label style="margin-top:4px;">Filter by boundary</label>
-      <select id="boundaryFilter" style="width:100%;"></select>
+      <div class="row" style="align-items:flex-end;">
+        <select id="boundaryFilter" style="width:100%;"></select>
+        <button class="danger small-btn" id="btnDeleteBoundary" style="flex:0 0 auto; display:none;">🗑 Delete Boundary</button>
+      </div>
       <div class="row" style="margin-top:10px;">
         <button class="small-btn" id="btnExportZip">📦 Export ZIP</button>
         <button class="small-btn" id="btnExport">Backup JSON</button>
@@ -326,6 +329,14 @@ function dbGetAllBoundaries(){
     req.onerror = (e) => reject(e);
   });
 }
+function dbDeleteBoundary(id){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BOUNDARY_STORE, 'readwrite');
+    tx.objectStore(BOUNDARY_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e);
+  });
+}
 
 // ---------- utility ----------
 function toast(msg){
@@ -452,8 +463,33 @@ function populateBoundaryFilter(){
     `<option value="">All boundaries</option>` +
     allBoundaries.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   if(current && allBoundaries.some(b => b.id === current)) boundaryFilter.value = current;
+  document.getElementById('btnDeleteBoundary').style.display = boundaryFilter.value ? 'block' : 'none';
 }
-boundaryFilter.onchange = () => renderList();
+boundaryFilter.onchange = () => {
+  document.getElementById('btnDeleteBoundary').style.display = boundaryFilter.value ? 'block' : 'none';
+  renderList();
+};
+
+document.getElementById('btnDeleteBoundary').onclick = async () => {
+  const id = boundaryFilter.value;
+  if(!id) return;
+  const b = allBoundaries.find(x => x.id === id);
+  if(!b) return;
+  const pts = (await dbGetAll()).filter(p => p.boundaryId === id);
+  const photoCount = pts.reduce((n,p) => n + (p.photos||[]).length, 0);
+  const ok = confirm(
+    `Delete boundary "${b.name}"?\n\nThis will permanently delete ${pts.length} point(s) and ${photoCount} photo(s). This cannot be undone.`
+  );
+  if(!ok) return;
+  for(const p of pts) await dbDelete(p.id);
+  await dbDeleteBoundary(id);
+  if(localStorage.getItem('bf_lastBoundary') === id) localStorage.removeItem('bf_lastBoundary');
+  toast(`Deleted "${b.name}" and ${pts.length} point(s).`);
+  boundaryFilter.value = '';
+  await loadBoundaries();
+  populateBoundarySelect();
+  renderList();
+};
 
 // resolves the boundary to save against: existing selection, or creates
 // (or reuses, if the typed name matches an existing one) a new boundary

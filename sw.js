@@ -1,7 +1,7 @@
 // Boundary Point Finder — service worker
 // Cache-invalidation pattern: bump CACHE_NAME on every deploy that changes
 // any of the files below. Old caches are purged in 'activate'.
-const CACHE_NAME = 'boundary-finder-v4';
+const CACHE_NAME = 'boundary-finder-v5';
 
 const SHELL_FILES = [
   './',
