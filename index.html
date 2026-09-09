@@ -151,9 +151,20 @@
       <input type="text" id="pointName" placeholder="e.g. NE corner, rear pin">
 
       <label>GPS</label>
-      <div class="gps-readout" id="gpsReadout">Not started.</div>
-      <div class="row">
-        <button class="primary full" id="btnStartGps">Start GPS Lock</button>
+      <div id="gpsModeFields">
+        <div class="gps-readout" id="gpsReadout">Not started.</div>
+        <div class="row">
+          <button class="primary full" id="btnStartGps">Start GPS Lock</button>
+        </div>
+      </div>
+      <div id="manualModeFields" style="display:none;">
+        <label>Latitude (decimal degrees)</label>
+        <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
+        <label>Longitude (decimal degrees)</label>
+        <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="small-btn full" id="btnToggleManual">📝 Enter Coordinates Manually</button>
       </div>
 
       <label>Photos (marker close-up + context shot recommended)</label>
@@ -163,12 +174,14 @@
       </div>
       <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" multiple>
 
-      <label>Confidence</label>
-      <select id="confidence">
-        <option value="good">Good — clear sky, strong signal</option>
-        <option value="fair">Fair — some obstruction</option>
-        <option value="poor">Poor — canopy/buildings, weak signal</option>
-      </select>
+      <div id="confidenceField">
+        <label>Confidence</label>
+        <select id="confidence">
+          <option value="good">Good — clear sky, strong signal</option>
+          <option value="fair">Fair — some obstruction</option>
+          <option value="poor">Poor — canopy/buildings, weak signal</option>
+        </select>
+      </div>
 
       <label>Notes (deed tie, nearby features, etc.)</label>
       <textarea id="notes" placeholder="e.g. 15 ft NE of old oak stump, tied to iron pin at road ROW"></textarea>
@@ -519,6 +532,44 @@ const gpsReadout = document.getElementById('gpsReadout');
 const btnStartGps = document.getElementById('btnStartGps');
 const btnSavePoint = document.getElementById('btnSavePoint');
 
+// ---------- manual vs GPS entry mode ----------
+let entryMode = 'gps'; // 'gps' | 'manual'
+const gpsModeFields = document.getElementById('gpsModeFields');
+const manualModeFields = document.getElementById('manualModeFields');
+const btnToggleManual = document.getElementById('btnToggleManual');
+const manualLat = document.getElementById('manualLat');
+const manualLon = document.getElementById('manualLon');
+const confidenceField = document.getElementById('confidenceField');
+
+function parseManualCoords(){
+  const lat = parseFloat(manualLat.value);
+  const lon = parseFloat(manualLon.value);
+  if(isNaN(lat) || isNaN(lon)) return null;
+  if(lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+function setEntryMode(mode){
+  entryMode = mode;
+  const manual = mode === 'manual';
+  gpsModeFields.style.display = manual ? 'none' : 'block';
+  manualModeFields.style.display = manual ? 'block' : 'none';
+  confidenceField.style.display = manual ? 'none' : 'block';
+  btnToggleManual.textContent = manual ? '📡 Use GPS Instead' : '📝 Enter Coordinates Manually';
+  updateSaveButtonState();
+}
+btnToggleManual.onclick = () => setEntryMode(entryMode === 'gps' ? 'manual' : 'gps');
+manualLat.addEventListener('input', updateSaveButtonState);
+manualLon.addEventListener('input', updateSaveButtonState);
+
+function updateSaveButtonState(){
+  if(entryMode === 'manual'){
+    btnSavePoint.disabled = parseManualCoords() === null;
+  } else {
+    btnSavePoint.disabled = !bestFix;
+  }
+}
+
 function accClass(acc){
   if(acc == null) return '';
   if(acc <= 5) return 'acc-good';
@@ -531,13 +582,14 @@ function updateGpsReadout(){
     gpsReadout.textContent = gpsSamples.length
       ? `Reading… (${gpsSamples.length} samples, settling)`
       : 'Not started.';
+    updateSaveButtonState();
     return;
   }
   gpsReadout.innerHTML =
     `Lat: ${bestFix.lat.toFixed(7)}\nLon: ${bestFix.lon.toFixed(7)}\n` +
     `Accuracy: <span class="accbadge ${accClass(bestFix.acc)}">±${bestFix.acc.toFixed(1)} m</span>  ` +
     `(${gpsSamples.length} samples)`;
-  btnSavePoint.disabled = false;
+  updateSaveButtonState();
 }
 
 btnStartGps.onclick = () => {
@@ -594,7 +646,16 @@ function renderCapturePhotos(){
 }
 
 btnSavePoint.onclick = async () => {
-  if(!bestFix){ toast('Get a GPS fix first.'); return; }
+  let coords, accuracy, sampleCount, isManual;
+  if(entryMode === 'manual'){
+    const parsed = parseManualCoords();
+    if(!parsed){ toast('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).'); return; }
+    coords = parsed; accuracy = null; sampleCount = 0; isManual = true;
+  } else {
+    if(!bestFix){ toast('Get a GPS fix first.'); return; }
+    coords = { lat: bestFix.lat, lon: bestFix.lon }; accuracy = bestFix.acc; sampleCount = gpsSamples.length; isManual = false;
+  }
+
   const boundary = await resolveBoundaryForSave();
   if(!boundary) return;
 
@@ -608,11 +669,12 @@ btnSavePoint.onclick = async () => {
     boundaryName: boundary.name,
     pointNumber: nextPointNumber,
     name,
-    lat: bestFix.lat,
-    lon: bestFix.lon,
-    accuracy: bestFix.acc,
-    sampleCount: gpsSamples.length,
-    confidence: document.getElementById('confidence').value,
+    lat: coords.lat,
+    lon: coords.lon,
+    accuracy,
+    sampleCount,
+    manual: isManual,
+    confidence: isManual ? 'manual' : document.getElementById('confidence').value,
     notes: document.getElementById('notes').value.trim(),
     photos: capturePhotos.slice(),
     createdAt: Date.now()
@@ -628,6 +690,8 @@ btnSavePoint.onclick = async () => {
   capturePhotos = []; renderCapturePhotos();
   gpsSamples = []; bestFix = null; updateGpsReadout();
   btnStartGps.textContent = 'Start GPS Lock';
+  manualLat.value = ''; manualLon.value = '';
+  setEntryMode('gps');
   await loadBoundaries();
   populateBoundarySelect();
   boundarySelect.value = boundary.id;
@@ -665,10 +729,13 @@ async function renderList(){
     card.className = 'pointcard';
     const date = new Date(p.createdAt).toLocaleDateString();
     const boundaryTag = p.boundaryName ? `${escapeHtml(p.boundaryName)} · pt ${p.pointNumber||'?'}` : '(no boundary)';
+    const accBit = p.accuracy != null
+      ? `<span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span>`
+      : `<span class="accbadge" style="background:var(--muted);">manual</span>`;
     card.innerHTML = `
       <div class="pc-top">
         <div class="pc-name">${escapeHtml(p.name)}</div>
-        <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span>
+        ${accBit}
       </div>
       <div class="pc-meta">${boundaryTag} · ${date} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.confidence}</div>
       <div class="pc-thumbs">${(p.photos||[]).slice(0,4).map(src=>`<img src="${src}">`).join('')}</div>
@@ -815,8 +882,10 @@ function openDetail(id){
     p.boundaryName ? `${p.boundaryName} · Point #${p.pointNumber||'?'}` : '(no boundary assigned)';
   document.getElementById('detailGps').innerHTML =
     `Lat: ${p.lat.toFixed(7)}\nLon: ${p.lon.toFixed(7)}\n` +
-    `Accuracy: <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span> ` +
-    `(${p.sampleCount||1} samples)\nConfidence: ${p.confidence}\nSaved: ${new Date(p.createdAt).toLocaleString()}`;
+    (p.accuracy != null
+      ? `Accuracy: <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span> (${p.sampleCount||1} samples)\n`
+      : `Source: <span class="accbadge" style="background:var(--muted);">manually entered</span>\n`) +
+    `Confidence: ${p.confidence}\nSaved: ${new Date(p.createdAt).toLocaleString()}`;
   const dPhotos = p.photos || [];
   document.getElementById('detailPhotos').innerHTML =
     dPhotos.map((src,i)=>`<img src="${src}" data-i="${i}">`).join('') || '<span style="color:var(--muted);font-size:.85rem;">No photos</span>';
@@ -1001,10 +1070,13 @@ function updateNav(lat, lon, acc){
   }
   arrow.style.transform = `rotate(${rotate}deg)`;
   document.getElementById('navBearingTxt').textContent = headingNote;
+  const targetAccBit = navTargetPoint.accuracy != null
+    ? `<span class="accbadge ${accClass(navTargetPoint.accuracy)}">±${navTargetPoint.accuracy.toFixed(1)} m</span>`
+    : `<span class="accbadge" style="background:var(--muted);">manual entry</span>`;
   document.getElementById('navGpsInfo').innerHTML =
     `Your position: ${lat.toFixed(7)}, ${lon.toFixed(7)}\n` +
     `Your GPS accuracy: <span class="accbadge ${accClass(acc)}">±${acc.toFixed(1)} m</span>\n` +
-    `Target accuracy: <span class="accbadge ${accClass(navTargetPoint.accuracy)}">±${navTargetPoint.accuracy.toFixed(1)} m</span>`;
+    `Target accuracy: ${targetAccBit}`;
 
   if(dist < 3){
     document.getElementById('navBearingTxt').textContent = "You're within a few meters — use the photos to spot the exact corner.";
