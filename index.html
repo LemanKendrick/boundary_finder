@@ -219,13 +219,30 @@
       <h2 id="detailName" style="margin-top:10px;"></h2>
       <div class="pc-meta" id="detailBoundaryMeta" style="margin-bottom:6px;"></div>
       <div class="gps-readout" id="detailGps"></div>
+
+      <label>Photos</label>
       <div class="photothumbs" id="detailPhotos"></div>
+      <div class="row" id="detailAddPhotoRow" style="display:none; margin-bottom:8px;">
+        <button class="secondary full" id="btnDetailAddPhoto">📷 Add Photo</button>
+      </div>
+      <input type="file" id="detailPhotoInput" accept="image/*" capture="environment" style="display:none" multiple>
+
+      <label>Notes</label>
       <p id="detailNotes" style="white-space:pre-wrap; font-size:.92rem;"></p>
+      <textarea id="detailNotesEdit" style="display:none;"></textarea>
+
       <div class="row">
         <button class="secondary full" id="btnNavigateTo">🧭 Navigate to Point</button>
       </div>
       <div class="row" style="margin-top:8px;">
         <button class="small-btn full" id="btnOpenMaps">Open in Maps app</button>
+        <button class="small-btn full" id="btnEditPoint">✏️ Edit</button>
+      </div>
+      <div class="row" id="detailEditActions" style="display:none; margin-top:8px;">
+        <button class="primary full" id="btnSaveEdit">💾 Save Changes</button>
+        <button class="small-btn full" id="btnCancelEdit">✕ Cancel</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
         <button class="danger small-btn full" id="btnDeletePoint">Delete Point</button>
       </div>
     </div>
@@ -873,9 +890,23 @@ function escapeHtml(s){
   const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
 
+let currentDetailPoint = null;
+let detailEditing = false;
+let editPhotos = []; // working copy of photos while editing; discarded on Cancel
+
 function openDetail(id){
   currentDetailId = id;
   const p = allPoints.find(x => x.id === id);
+  if(!p) return;
+  currentDetailPoint = p;
+  detailEditing = false;
+  editPhotos = [];
+  renderDetail();
+  showView('detail');
+}
+
+function renderDetail(){
+  const p = currentDetailPoint;
   if(!p) return;
   document.getElementById('detailName').textContent = p.name;
   document.getElementById('detailBoundaryMeta').textContent =
@@ -886,15 +917,93 @@ function openDetail(id){
       ? `Accuracy: <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span> (${p.sampleCount||1} samples)\n`
       : `Source: <span class="accbadge" style="background:var(--muted);">manually entered</span>\n`) +
     `Confidence: ${p.confidence}\nSaved: ${new Date(p.createdAt).toLocaleString()}`;
-  const dPhotos = p.photos || [];
-  document.getElementById('detailPhotos').innerHTML =
-    dPhotos.map((src,i)=>`<img src="${src}" data-i="${i}">`).join('') || '<span style="color:var(--muted);font-size:.85rem;">No photos</span>';
-  document.getElementById('detailPhotos').querySelectorAll('img').forEach(img => {
-    img.onclick = () => openLightbox(dPhotos, +img.dataset.i);
-  });
-  document.getElementById('detailNotes').textContent = p.notes || '(no notes)';
-  showView('detail');
+
+  renderDetailPhotosBlock();
+
+  const notesP = document.getElementById('detailNotes');
+  const notesEdit = document.getElementById('detailNotesEdit');
+  if(detailEditing){
+    notesP.style.display = 'none';
+    notesEdit.style.display = 'block';
+    notesEdit.value = p.notes || '';
+  } else {
+    notesP.style.display = 'block';
+    notesEdit.style.display = 'none';
+    notesP.textContent = p.notes || '(no notes)';
+  }
+
+  document.getElementById('detailAddPhotoRow').style.display = detailEditing ? 'flex' : 'none';
+  document.getElementById('btnEditPoint').style.display = detailEditing ? 'none' : 'block';
+  document.getElementById('detailEditActions').style.display = detailEditing ? 'flex' : 'none';
 }
+
+function renderDetailPhotosBlock(){
+  const wrap = document.getElementById('detailPhotos');
+  wrap.innerHTML = '';
+  const photos = detailEditing ? editPhotos : (currentDetailPoint.photos || []);
+  if(photos.length === 0 && !detailEditing){
+    wrap.innerHTML = '<span style="color:var(--muted);font-size:.85rem;">No photos</span>';
+    return;
+  }
+  photos.forEach((src, i) => {
+    if(detailEditing){
+      const d = document.createElement('div'); d.className = 'thumbwrap';
+      d.innerHTML = `<img src="${src}" data-i="${i}"><button class="rm" data-i="${i}">✕</button>`;
+      wrap.appendChild(d);
+    } else {
+      const img = document.createElement('img');
+      img.src = src; img.dataset.i = i;
+      wrap.appendChild(img);
+    }
+  });
+  wrap.querySelectorAll('img').forEach(img => {
+    img.onclick = () => openLightbox(photos, +img.dataset.i);
+  });
+  if(detailEditing){
+    wrap.querySelectorAll('.rm').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); editPhotos.splice(+btn.dataset.i, 1); renderDetailPhotosBlock(); };
+    });
+  }
+}
+
+document.getElementById('btnEditPoint').onclick = () => {
+  detailEditing = true;
+  editPhotos = (currentDetailPoint.photos || []).slice();
+  renderDetail();
+};
+document.getElementById('btnCancelEdit').onclick = () => {
+  detailEditing = false;
+  editPhotos = [];
+  renderDetail();
+};
+document.getElementById('btnSaveEdit').onclick = async () => {
+  const updated = {
+    ...currentDetailPoint,
+    notes: document.getElementById('detailNotesEdit').value.trim(),
+    photos: editPhotos.slice()
+  };
+  await dbPut(updated);
+  currentDetailPoint = updated;
+  const idx = allPoints.findIndex(x => x.id === updated.id);
+  if(idx !== -1) allPoints[idx] = updated;
+  detailEditing = false;
+  toast('Point updated.');
+  renderDetail();
+};
+document.getElementById('btnDetailAddPhoto').onclick = () => document.getElementById('detailPhotoInput').click();
+document.getElementById('detailPhotoInput').onchange = async () => {
+  const input = document.getElementById('detailPhotoInput');
+  const files = Array.from(input.files || []);
+  for(const f of files){
+    try{
+      const dataUrl = await compressImage(f);
+      editPhotos.push(dataUrl);
+    }catch(e){ console.error(e); toast('Could not process photo.'); }
+  }
+  input.value = '';
+  renderDetailPhotosBlock();
+};
+
 document.getElementById('btnBackToList').onclick = () => showView('list');
 document.getElementById('btnDeletePoint').onclick = async () => {
   if(!currentDetailId) return;
