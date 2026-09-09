@@ -262,6 +262,9 @@
       </div>
       <div class="distance-big" id="navDistance">-- ft</div>
       <div class="bearing-txt" id="navBearingTxt">Waiting for GPS &amp; compass…</div>
+      <div class="row" style="margin-top:8px;">
+        <button class="small-btn full" id="btnFlipCompass">🔄 Compass pointing backwards? Tap to flip</button>
+      </div>
       <div class="gps-readout" id="navGpsInfo" style="margin-top:14px;"></div>
       <div class="photothumbs" id="navPhotos" style="margin-top:10px;"></div>
       <p style="font-size:.8rem; color:var(--muted); text-align:center;">
@@ -1123,6 +1126,11 @@ document.getElementById('btnNavigateTo').onclick = () => {
   showView('navigate');
 };
 document.getElementById('btnBackFromNav').onclick = () => showView('detail');
+document.getElementById('btnFlipCompass').onclick = () => {
+  const flipped = localStorage.getItem('bf_compassFlip') === '1';
+  localStorage.setItem('bf_compassFlip', flipped ? '0' : '1');
+  toast(flipped ? 'Compass flip removed.' : 'Compass flipped 180°.');
+};
 
 function startNavigation(){
   stopNavigation();
@@ -1181,10 +1189,25 @@ function onOrientation(e){
   let heading = null;
   if(e.webkitCompassHeading != null){
     heading = e.webkitCompassHeading; // iOS: already tilt-compensated
-  } else if(e.alpha != null && e.beta != null && e.gamma != null){
-    heading = computeCompassHeading(e.alpha, e.beta, e.gamma);
+  } else if(e.alpha != null){
+    const beta = e.beta || 0, gamma = e.gamma || 0;
+    const isFlat = Math.abs(beta) < 25 && Math.abs(gamma) < 25;
+    if(isFlat){
+      // Phone lying flat, screen up: on most Android/Chrome combos the
+      // "absolute" alpha value IS already a true compass heading
+      // (clockwise from north) — no inversion needed. The old
+      // "360 - alpha" formula is a mirror-flip here: correct only when
+      // facing exactly north/south, off by up to 180° facing east/west.
+      heading = e.alpha;
+    } else if(e.beta != null && e.gamma != null){
+      // Phone tilted/upright: use the full tilt-compensated formula.
+      heading = computeCompassHeading(e.alpha, e.beta, e.gamma);
+    }
   }
-  if(heading != null) navHeading = heading;
+  if(heading == null) return;
+  heading = ((heading % 360) + 360) % 360;
+  if(localStorage.getItem('bf_compassFlip') === '1') heading = (heading + 180) % 360;
+  navHeading = heading;
 }
 
 let lastNavFix = null;
