@@ -159,9 +159,25 @@
       </div>
       <div id="manualModeFields" style="display:none;">
         <label>Latitude (decimal degrees)</label>
-        <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
+        <div class="row">
+          <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
+          <button class="small-btn" id="btnCCCNorth" style="flex:0 0 auto;">CCC North --></button>
+        </div>
         <label>Longitude (decimal degrees)</label>
-        <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
+        <div class="row">
+          <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
+          <button class="small-btn" id="btnCCCEast" style="flex:0 0 auto;">CCC East --></button>
+        </div>
+        <label>CCC Northing</label>
+        <div class="row">
+          <input type="text" id="cccNorthing" placeholder="e.g. 123456.78" inputmode="decimal">
+          <button class="small-btn" id="btnCCCLatitude" style="flex:0 0 auto;">Latitude --></button>
+        </div>
+        <label>CCC Easting</label>
+        <div class="row">
+          <input type="text" id="cccEasting" placeholder="e.g. 654321.09" inputmode="decimal">
+          <button class="small-btn" id="btnCCCLongitude" style="flex:0 0 auto;">Longitude --></button>
+        </div>
       </div>
       <div class="row" style="margin-top:8px;">
         <button class="small-btn full" id="btnToggleManual">📝 Enter Coordinates Manually</button>
@@ -581,6 +597,34 @@ function setEntryMode(mode){
 btnToggleManual.onclick = () => setEntryMode(entryMode === 'gps' ? 'manual' : 'gps');
 manualLat.addEventListener('input', updateSaveButtonState);
 manualLon.addEventListener('input', updateSaveButtonState);
+
+// Placeholders — tell me what these should actually do and I'll wire them up.
+document.getElementById('btnCCCNorth').onclick = () => {
+  const lat = parseFloat(manualLat.value);
+  if(isNaN(lat)){ toast('Enter a Latitude value first.'); return; }
+  const northing = (lat - 37.0999502777778) * 3600 * 101.1383;
+  document.getElementById('cccNorthing').value = northing.toFixed(2);
+};
+document.getElementById('btnCCCEast').onclick = () => {
+  const lon = Math.abs(parseFloat(manualLon.value));
+  if(isNaN(lon)){ toast('Enter a Longitude value first.'); return; }
+  const easting = (82.3834411111111 - lon) * 3600 * 101.383;
+  document.getElementById('cccEasting').value = easting.toFixed(2);
+};
+document.getElementById('btnCCCLatitude').onclick = () => {
+  const northing = parseFloat(document.getElementById('cccNorthing').value);
+  if(isNaN(northing)){ toast('Enter a CCC Northing value first.'); return; }
+  const lat = (northing / 101.1383 / 3600) + 37.0999502777778;
+  manualLat.value = lat.toFixed(7);
+  updateSaveButtonState();
+};
+document.getElementById('btnCCCLongitude').onclick = () => {
+  const easting = parseFloat(document.getElementById('cccEasting').value);
+  if(isNaN(easting)){ toast('Enter a CCC Easting value first.'); return; }
+  const lon = -(82.3834411111111 - (easting / 81.017 / 3600));
+  manualLon.value = lon.toFixed(7);
+  updateSaveButtonState();
+};
 
 function updateSaveButtonState(){
   if(entryMode === 'manual'){
