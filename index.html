@@ -423,6 +423,50 @@ function sanitizeFilename(s){
   return (s || 'boundary').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'boundary';
 }
 
+// ---------- NAD27 <-> WGS84 datum shift (abridged Molodensky, CONUS params) ----------
+// CCC Northing/Easting <-> Latitude/Longitude conversions above operate in
+// NAD27, but stored points are WGS84 (what Google Maps/GPS use). This applies
+// the standard NIMA TR8350.2 CONUS shift (dX=-8, dY=160, dZ=176 m, Clarke
+// 1866 -> WGS84 ellipsoid) both forward (NAD27->WGS84, for Latitude/Longitude
+// buttons) and in reverse (WGS84->NAD27, for CCC Northing/Easting buttons) so
+// results land on the correct spot either direction.
+const NAD27_A = 6378206.4, NAD27_F = 1 / 294.978698;
+const WGS84_A = 6378137.0, WGS84_F = 1 / 298.257223563;
+const NAD27_TO_WGS84_DX = -8, NAD27_TO_WGS84_DY = 160, NAD27_TO_WGS84_DZ = 176;
+
+// General abridged-Molodensky delta, evaluated at a point given in the
+// SOURCE datum. Returns {dLat, dLon} in degrees to ADD to the source
+// coordinate to get the target coordinate.
+function molodenskyDelta(latDeg, lonDeg, aSrc, fSrc, aDst, fDst, dX, dY, dZ){
+  const da = aDst - aSrc, df = fDst - fSrc;
+  const phi = latDeg * Math.PI/180, lam = lonDeg * Math.PI/180;
+  const e2 = 2*fSrc - fSrc*fSrc;
+  const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi), sinLam = Math.sin(lam), cosLam = Math.cos(lam);
+  const rho = aSrc * (1 - e2) / Math.pow(1 - e2*sinPhi*sinPhi, 1.5); // meridian radius
+  const nu = aSrc / Math.sqrt(1 - e2*sinPhi*sinPhi);                  // prime vertical radius
+  const dLatRad = (-dX*sinPhi*cosLam - dY*sinPhi*sinLam + dZ*cosPhi +
+                   (aSrc*df + fSrc*da) * Math.sin(2*phi)) / rho;
+  const dLonRad = (-dX*sinLam + dY*cosLam) / (nu * cosPhi);
+  return { dLat: dLatRad * 180/Math.PI, dLon: dLonRad * 180/Math.PI };
+}
+
+function nad27ToWgs84DeltaLat(latDeg, lonDeg){
+  return molodenskyDelta(latDeg, lonDeg, NAD27_A, NAD27_F, WGS84_A, WGS84_F,
+                          NAD27_TO_WGS84_DX, NAD27_TO_WGS84_DY, NAD27_TO_WGS84_DZ).dLat;
+}
+function nad27ToWgs84DeltaLon(latDeg, lonDeg){
+  return molodenskyDelta(latDeg, lonDeg, NAD27_A, NAD27_F, WGS84_A, WGS84_F,
+                          NAD27_TO_WGS84_DX, NAD27_TO_WGS84_DY, NAD27_TO_WGS84_DZ).dLon;
+}
+// Reverse direction: evaluated at the WGS84 point, with negated shift and
+// swapped ellipsoids — the standard way to approximate the inverse of a
+// block-shift datum transformation.
+function wgs84ToNad27(latDeg, lonDeg){
+  const d = molodenskyDelta(latDeg, lonDeg, WGS84_A, WGS84_F, NAD27_A, NAD27_F,
+                             -NAD27_TO_WGS84_DX, -NAD27_TO_WGS84_DY, -NAD27_TO_WGS84_DZ);
+  return { lat: latDeg + d.dLat, lon: lonDeg + d.dLon };
+}
+
 // downscale + compress a File/Blob image to keep IndexedDB size sane
 function compressImage(file, maxDim=1280, quality=0.75){
   return new Promise((resolve, reject) => {
@@ -602,27 +646,39 @@ manualLon.addEventListener('input', updateSaveButtonState);
 document.getElementById('btnCCCNorth').onclick = () => {
   const lat = parseFloat(manualLat.value);
   if(isNaN(lat)){ toast('Enter a Latitude value first.'); return; }
-  const northing = (lat - 37.0999502777778) * 3600 * 101.1383;
+  const existingLon = parseFloat(manualLon.value);
+  const lonForShift = isNaN(existingLon) ? -82.3834411111111 : existingLon;
+  const nad27 = wgs84ToNad27(lat, lonForShift);
+  const northing = (nad27.lat - 37.0999502777778) * 3600 * 101.1383;
   document.getElementById('cccNorthing').value = northing.toFixed(2);
 };
 document.getElementById('btnCCCEast').onclick = () => {
-  const lon = Math.abs(parseFloat(manualLon.value));
+  const lon = parseFloat(manualLon.value);
   if(isNaN(lon)){ toast('Enter a Longitude value first.'); return; }
-  const easting = (82.3834411111111 - lon) * 3600 * 101.383;
+  const existingLat = parseFloat(manualLat.value);
+  const latForShift = isNaN(existingLat) ? 37.0999502777778 : existingLat;
+  const nad27 = wgs84ToNad27(latForShift, lon);
+  const easting = (82.3834411111111 - Math.abs(nad27.lon)) * 3600 * 101.383;
   document.getElementById('cccEasting').value = easting.toFixed(2);
 };
 document.getElementById('btnCCCLatitude').onclick = () => {
   const northing = parseFloat(document.getElementById('cccNorthing').value);
   if(isNaN(northing)){ toast('Enter a CCC Northing value first.'); return; }
-  const lat = (northing / 101.1383 / 3600) + 37.0999502777778;
-  manualLat.value = lat.toFixed(7);
+  const rawLat = (northing / 101.1383 / 3600) + 37.0999502777778; // NAD27
+  const existingLon = parseFloat(manualLon.value);
+  const lonForShift = isNaN(existingLon) ? -82.3834411111111 : existingLon;
+  const shifted = rawLat + nad27ToWgs84DeltaLat(rawLat, lonForShift);
+  manualLat.value = shifted.toFixed(7);
   updateSaveButtonState();
 };
 document.getElementById('btnCCCLongitude').onclick = () => {
   const easting = parseFloat(document.getElementById('cccEasting').value);
   if(isNaN(easting)){ toast('Enter a CCC Easting value first.'); return; }
-  const lon = -(82.3834411111111 - (easting / 81.017 / 3600));
-  manualLon.value = lon.toFixed(7);
+  const rawLon = -(82.3834411111111 - (easting / 81.017 / 3600)); // NAD27
+  const existingLat = parseFloat(manualLat.value);
+  const latForShift = isNaN(existingLat) ? 37.0999502777778 : existingLat;
+  const shifted = rawLon + nad27ToWgs84DeltaLon(latForShift, rawLon);
+  manualLon.value = shifted.toFixed(7);
   updateSaveButtonState();
 };
 
