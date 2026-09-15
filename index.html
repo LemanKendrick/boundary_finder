@@ -114,6 +114,23 @@
   .small-btn{padding:6px 10px; font-size:.8rem;}
   .flex-between{display:flex; justify-content:space-between; align-items:center;}
   .confidence-tag{font-size:.75rem; padding:2px 8px; border-radius:10px; border:1px solid var(--line);}
+  #appearanceOverlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:90;
+    align-items:flex-start; justify-content:center; padding:20px 12px; overflow-y:auto;
+  }
+  #appearanceOverlay.show{display:flex;}
+  #appearancePanel{
+    background:var(--panel); border-radius:12px; padding:16px; max-width:420px; width:100%;
+    box-shadow:0 8px 24px rgba(0,0,0,0.3); color:var(--ink);
+  }
+  .color-row{
+    display:flex; align-items:center; justify-content:space-between; padding:8px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .color-row label{margin:0; font-size:.9rem; color:var(--ink); flex:1;}
+  .color-row input[type=color]{
+    width:44px; height:32px; border:1px solid var(--line); border-radius:6px; padding:0; background:none; cursor:pointer;
+  }
   .photothumbs img, .pc-thumbs img{cursor:pointer;}
   #lightbox{
     display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92);
@@ -134,8 +151,25 @@
 
 <header>
   <h1>📍 Boundary Point Finder</h1>
-  <button class="icon" id="themeToggle" title="Toggle high-contrast theme">☀</button>
+  <button class="icon" id="btnAppearance" title="Appearance">🎨</button>
 </header>
+
+<div id="appearanceOverlay">
+  <div id="appearancePanel">
+    <div class="flex-between" style="margin-bottom:10px;">
+      <h2 style="margin:0;">Appearance</h2>
+      <button class="small-btn" id="btnCloseAppearance">✕ Close</button>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button class="small-btn full" id="btnPresetDefault">☀ Default</button>
+      <button class="small-btn full" id="btnPresetHC">◐ High Contrast</button>
+    </div>
+    <div id="colorRows"></div>
+    <div class="row" style="margin-top:14px;">
+      <button class="danger small-btn full" id="btnResetColors">Reset to Defaults</button>
+    </div>
+  </div>
+</div>
 
 <main>
 
@@ -168,6 +202,7 @@
           <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
           <button class="small-btn" id="btnCCCEast" style="flex:0 0 auto;">CCC East --></button>
         </div>
+        <div class="pc-meta" id="nad27Readout" style="margin:2px 0 8px;"></div>
         <label>CCC Northing</label>
         <div class="row">
           <input type="text" id="cccNorthing" placeholder="e.g. 123456.78" inputmode="decimal">
@@ -492,19 +527,102 @@ function compressImage(file, maxDim=1280, quality=0.75){
   });
 }
 
-// ---------- theme ----------
-const themeToggle = document.getElementById('themeToggle');
-function applyTheme(){
-  const hc = localStorage.getItem('bf_theme') === 'hc';
-  document.body.classList.toggle('hc-light', hc);
-  themeToggle.textContent = hc ? '◐' : '☀';
-}
-themeToggle.onclick = () => {
-  const hc = localStorage.getItem('bf_theme') === 'hc';
-  localStorage.setItem('bf_theme', hc ? 'normal' : 'hc');
-  applyTheme();
+// ---------- appearance / color customization ----------
+const THEME_VARS = [
+  { key: '--bg',      label: 'Background' },
+  { key: '--panel',   label: 'Card / panel' },
+  { key: '--ink',     label: 'Text' },
+  { key: '--muted',   label: 'Muted text' },
+  { key: '--accent',  label: 'Primary accent' },
+  { key: '--accent2', label: 'Secondary accent' },
+  { key: '--line',    label: 'Borders / lines' },
+  { key: '--danger',  label: 'Danger / delete' },
+  { key: '--good',    label: 'Good / success' }
+];
+const DEFAULT_COLORS = {
+  '--bg':'#f4f2ec', '--panel':'#ffffff', '--ink':'#1a1a18', '--muted':'#6b6a63',
+  '--accent':'#1e3a2f', '--accent2':'#c96a2e', '--line':'#d8d4c8',
+  '--danger':'#a13a2e', '--good':'#2e6b3e'
 };
-applyTheme();
+const HC_COLORS = {
+  '--bg':'#ffffff', '--panel':'#ffffff', '--ink':'#000000', '--muted':'#333333',
+  '--accent':'#003300', '--accent2':'#a34700', '--line':'#000000',
+  '--danger':'#8b0000', '--good':'#004d00'
+};
+
+function rgbToHex(rgbStr){
+  const m = rgbStr.match(/\d+/g);
+  if(!m) return '#000000';
+  return '#' + m.slice(0,3).map(n => (+n).toString(16).padStart(2,'0')).join('');
+}
+function applyColors(colors){
+  Object.keys(colors).forEach(k => document.documentElement.style.setProperty(k, colors[k]));
+}
+function getCurrentColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const out = {};
+  THEME_VARS.forEach(v => {
+    const val = cs.getPropertyValue(v.key).trim();
+    out[v.key] = val.startsWith('#') ? val : rgbToHex(val);
+  });
+  return out;
+}
+function saveColors(colors){
+  localStorage.setItem('bf_customColors', JSON.stringify(colors));
+  applyColors(colors);
+}
+function renderColorRows(){
+  const current = getCurrentColors();
+  const wrap = document.getElementById('colorRows');
+  wrap.innerHTML = THEME_VARS.map(v => `
+    <div class="color-row">
+      <label for="color_${v.key}">${v.label}</label>
+      <input type="color" id="color_${v.key}" data-key="${v.key}" value="${current[v.key]}">
+    </div>
+  `).join('');
+  wrap.querySelectorAll('input[type=color]').forEach(input => {
+    input.addEventListener('input', () => {
+      const colors = getCurrentColors();
+      colors[input.dataset.key] = input.value;
+      saveColors(colors);
+    });
+  });
+}
+
+// migrate the old light/high-contrast toggle setting, if present, so
+// existing installs keep their prior look after this update
+(function migrateOldTheme(){
+  if(localStorage.getItem('bf_customColors')) return;
+  if(localStorage.getItem('bf_theme') === 'hc'){
+    saveColors(HC_COLORS);
+  }
+})();
+
+// apply saved custom colors (if any) on load
+const savedColors = localStorage.getItem('bf_customColors');
+if(savedColors){
+  try{ applyColors(JSON.parse(savedColors)); }catch(e){ console.warn('Bad saved colors', e); }
+}
+
+document.getElementById('btnAppearance').onclick = () => {
+  renderColorRows();
+  document.getElementById('appearanceOverlay').classList.add('show');
+};
+document.getElementById('btnCloseAppearance').onclick = () => {
+  document.getElementById('appearanceOverlay').classList.remove('show');
+};
+document.getElementById('appearanceOverlay').addEventListener('click', e => {
+  if(e.target.id === 'appearanceOverlay') document.getElementById('appearanceOverlay').classList.remove('show');
+});
+document.getElementById('btnPresetDefault').onclick = () => { saveColors(DEFAULT_COLORS); renderColorRows(); };
+document.getElementById('btnPresetHC').onclick = () => { saveColors(HC_COLORS); renderColorRows(); };
+document.getElementById('btnResetColors').onclick = () => {
+  localStorage.removeItem('bf_customColors');
+  localStorage.removeItem('bf_theme');
+  THEME_VARS.forEach(v => document.documentElement.style.removeProperty(v.key));
+  renderColorRows();
+  toast('Colors reset to defaults.');
+};
 
 // ---------- view switching ----------
 const views = ['capture','list','detail','navigate'];
@@ -639,8 +757,16 @@ function setEntryMode(mode){
   updateSaveButtonState();
 }
 btnToggleManual.onclick = () => setEntryMode(entryMode === 'gps' ? 'manual' : 'gps');
-manualLat.addEventListener('input', updateSaveButtonState);
-manualLon.addEventListener('input', updateSaveButtonState);
+function updateNad27Readout(){
+  const lat = parseFloat(manualLat.value);
+  const lon = parseFloat(manualLon.value);
+  const el = document.getElementById('nad27Readout');
+  if(isNaN(lat) || isNaN(lon)){ el.textContent = ''; return; }
+  const nad27 = wgs84ToNad27(lat, lon);
+  el.textContent = `NAD27: ${nad27.lat.toFixed(7)}, ${nad27.lon.toFixed(7)}`;
+}
+manualLat.addEventListener('input', () => { updateSaveButtonState(); updateNad27Readout(); });
+manualLon.addEventListener('input', () => { updateSaveButtonState(); updateNad27Readout(); });
 
 // Placeholders — tell me what these should actually do and I'll wire them up.
 document.getElementById('btnCCCNorth').onclick = () => {
@@ -670,6 +796,7 @@ document.getElementById('btnCCCLatitude').onclick = () => {
   const shifted = rawLat + nad27ToWgs84DeltaLat(rawLat, lonForShift);
   manualLat.value = shifted.toFixed(7);
   updateSaveButtonState();
+  updateNad27Readout();
 };
 document.getElementById('btnCCCLongitude').onclick = () => {
   const easting = parseFloat(document.getElementById('cccEasting').value);
@@ -680,6 +807,7 @@ document.getElementById('btnCCCLongitude').onclick = () => {
   const shifted = rawLon + nad27ToWgs84DeltaLon(latForShift, rawLon);
   manualLon.value = shifted.toFixed(7);
   updateSaveButtonState();
+  updateNad27Readout();
 };
 
 function updateSaveButtonState(){
@@ -824,6 +952,7 @@ btnSavePoint.onclick = async () => {
   gpsSamples = []; bestFix = null; updateGpsReadout();
   btnStartGps.textContent = 'Start GPS Lock';
   manualLat.value = ''; manualLon.value = '';
+  updateNad27Readout();
   document.getElementById('cccNorthing').value = '';
   document.getElementById('cccEasting').value = '';
   setEntryMode('gps');
