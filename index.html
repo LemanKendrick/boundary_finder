@@ -782,6 +782,17 @@ btnSavePoint.onclick = async () => {
   const existingForBoundary = (await dbGetAll()).filter(p => p.boundaryId === boundary.id);
   const nextPointNumber = existingForBoundary.reduce((max,p) => Math.max(max, p.pointNumber||0), 0) + 1;
 
+  // Preserve the original CCC Northing/Easting inputs, if this point came
+  // from the CCC conversion buttons — kept for future recalibration even
+  // after the derived lat/lon is what's actually used for navigation.
+  let cccNorthingVal = null, cccEastingVal = null;
+  if(isManual){
+    const n = parseFloat(document.getElementById('cccNorthing').value);
+    const e = parseFloat(document.getElementById('cccEasting').value);
+    if(!isNaN(n)) cccNorthingVal = n;
+    if(!isNaN(e)) cccEastingVal = e;
+  }
+
   const name = document.getElementById('pointName').value.trim() || ('Point ' + nextPointNumber);
   const point = {
     id: uid(),
@@ -794,6 +805,8 @@ btnSavePoint.onclick = async () => {
     accuracy,
     sampleCount,
     manual: isManual,
+    cccNorthing: cccNorthingVal,
+    cccEasting: cccEastingVal,
     confidence: isManual ? 'manual' : document.getElementById('confidence').value,
     notes: document.getElementById('notes').value.trim(),
     photos: capturePhotos.slice(),
@@ -811,6 +824,8 @@ btnSavePoint.onclick = async () => {
   gpsSamples = []; bestFix = null; updateGpsReadout();
   btnStartGps.textContent = 'Start GPS Lock';
   manualLat.value = ''; manualLon.value = '';
+  document.getElementById('cccNorthing').value = '';
+  document.getElementById('cccEasting').value = '';
   setEntryMode('gps');
   await loadBoundaries();
   populateBoundarySelect();
@@ -1019,6 +1034,9 @@ function renderDetail(){
     (p.accuracy != null
       ? `Accuracy: <span class="accbadge ${accClass(p.accuracy)}">±${p.accuracy.toFixed(1)} m</span> (${p.sampleCount||1} samples)\n`
       : `Source: <span class="accbadge" style="background:var(--muted);">manually entered</span>\n`) +
+    ((p.cccNorthing != null || p.cccEasting != null)
+      ? `CCC Northing: ${p.cccNorthing != null ? p.cccNorthing : '—'}   CCC Easting: ${p.cccEasting != null ? p.cccEasting : '—'}\n`
+      : '') +
     `Confidence: ${p.confidence}\nSaved: ${new Date(p.createdAt).toLocaleString()}`;
 
   renderDetailPhotosBlock();
@@ -1182,6 +1200,8 @@ document.getElementById('btnExportZip').onclick = async () => {
       manifest.push({
         pointNumber: p.pointNumber, name: p.name, lat: p.lat, lon: p.lon,
         accuracy: p.accuracy, confidence: p.confidence, notes: p.notes,
+        cccNorthing: p.cccNorthing != null ? p.cccNorthing : undefined,
+        cccEasting: p.cccEasting != null ? p.cccEasting : undefined,
         createdAt: new Date(p.createdAt).toISOString(), photos: photoFiles
       });
     }
