@@ -11,12 +11,12 @@
   :root{
     --bg:#f4f2ec; --panel:#ffffff; --ink:#1a1a18; --muted:#6b6a63;
     --accent:#1e3a2f; --accent2:#c96a2e; --line:#d8d4c8; --danger:#a13a2e;
-    --good:#2e6b3e; --shadow:0 2px 8px rgba(0,0,0,0.08);
+    --good:#2e6b3e; --btn-bg:#ffffff; --shadow:0 2px 8px rgba(0,0,0,0.08);
   }
   .hc-light{
     --bg:#ffffff; --panel:#ffffff; --ink:#000000; --muted:#333333;
     --accent:#003300; --accent2:#a34700; --line:#000000; --danger:#8b0000;
-    --good:#004d00; --shadow:0 0 0 1px #000;
+    --good:#004d00; --btn-bg:#ffffff; --shadow:0 0 0 1px #000;
   }
   *{box-sizing:border-box;}
   body{
@@ -47,7 +47,7 @@
   textarea{resize:vertical; min-height:50px;}
   button{
     font-family:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line);
-    padding:10px 14px; font-size:.95rem; background:#fff; color:var(--ink);
+    padding:10px 14px; font-size:.95rem; background:var(--btn-bg); color:var(--ink);
   }
   button.primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600;}
   button.secondary{background:var(--accent2); color:#fff; border-color:var(--accent2);}
@@ -110,7 +110,7 @@
   }
   .toast.show{opacity:.95;}
   select{padding:8px; border-radius:6px; border:1px solid var(--line); font-size:.9rem; font-family:inherit;}
-  hr.sep{border:none; border-top:1px solid var(--line); margin:14px 0;}
+  hr.sep{border:none; border-top:2px solid var(--accent); margin:20px 0;}
   .small-btn{padding:6px 10px; font-size:.8rem;}
   .flex-between{display:flex; justify-content:space-between; align-items:center;}
   .confidence-tag{font-size:.75rem; padding:2px 8px; border-radius:10px; border:1px solid var(--line);}
@@ -193,25 +193,29 @@
       </div>
       <div id="manualModeFields" style="display:none;">
         <label>Latitude (decimal degrees)</label>
-        <div class="row">
-          <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
-          <button class="small-btn" id="btnCCCNorth" style="flex:0 0 auto;">CCC North --></button>
-        </div>
+        <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
         <label>Longitude (decimal degrees)</label>
-        <div class="row">
-          <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
-          <button class="small-btn" id="btnCCCEast" style="flex:0 0 auto;">CCC East --></button>
+        <input type="text" id="manualLon" placeholder="e.g. -122.419400" inputmode="decimal">
+        <div style="margin-top:8px; text-align:center;">
+          <button class="small-btn" id="btnProcessCccNad83" style="width:auto; padding-left:18px; padding-right:18px;">Process CCC &amp; Nad83</button>
         </div>
-        <div class="pc-meta" id="nad27Readout" style="margin:2px 0 8px;"></div>
+        <hr class="sep">
+
         <label>CCC Northing</label>
-        <div class="row">
-          <input type="text" id="cccNorthing" placeholder="e.g. 123456.78" inputmode="decimal">
-          <button class="small-btn" id="btnCCCLatitude" style="flex:0 0 auto;">Latitude --></button>
-        </div>
+        <input type="text" id="cccNorthing" placeholder="e.g. 123456.78" inputmode="decimal">
         <label>CCC Easting</label>
-        <div class="row">
-          <input type="text" id="cccEasting" placeholder="e.g. 654321.09" inputmode="decimal">
-          <button class="small-btn" id="btnCCCLongitude" style="flex:0 0 auto;">Longitude --></button>
+        <input type="text" id="cccEasting" placeholder="e.g. 654321.09" inputmode="decimal">
+        <div style="margin-top:8px; text-align:center;">
+          <button class="small-btn" id="btnProcessLatLonNad83" style="width:auto; padding-left:18px; padding-right:18px;">Process Lat-Lon &amp; Nad83</button>
+        </div>
+        <hr class="sep">
+
+        <label>Nad83 Northing</label>
+        <input type="text" id="nad83Northing" placeholder="e.g. 123456.78" inputmode="decimal">
+        <label>Nad83 Easting</label>
+        <input type="text" id="nad83Easting" placeholder="e.g. 654321.09" inputmode="decimal">
+        <div style="margin-top:8px; text-align:center;">
+          <button class="small-btn" id="btnProcessLatLonCcc" style="width:auto; padding-left:18px; padding-right:18px;">Process Lat-Lon &amp; CCC</button>
         </div>
       </div>
       <div class="row" style="margin-top:8px;">
@@ -458,48 +462,80 @@ function sanitizeFilename(s){
   return (s || 'boundary').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'boundary';
 }
 
-// ---------- NAD27 <-> WGS84 datum shift (abridged Molodensky, CONUS params) ----------
-// CCC Northing/Easting <-> Latitude/Longitude conversions above operate in
-// NAD27, but stored points are WGS84 (what Google Maps/GPS use). This applies
-// the standard NIMA TR8350.2 CONUS shift (dX=-8, dY=160, dZ=176 m, Clarke
-// 1866 -> WGS84 ellipsoid) both forward (NAD27->WGS84, for Latitude/Longitude
-// buttons) and in reverse (WGS84->NAD27, for CCC Northing/Easting buttons) so
-// results land on the correct spot either direction.
-const NAD27_A = 6378206.4, NAD27_F = 1 / 294.978698;
-const WGS84_A = 6378137.0, WGS84_F = 1 / 298.257223563;
-const NAD27_TO_WGS84_DX = -8, NAD27_TO_WGS84_DY = 160, NAD27_TO_WGS84_DZ = 176;
+// ---------- Lat/Lon <-> NAD83 (Lambert Conformal Conic) <-> CCC ----------
+// Fitted from a 39-point control-point dataset (2007 control network) spanning
+// a wide multi-county area. The NAD83 Northing/Easting leg is a true Lambert
+// Conformal Conic projection (fitted to sub-millimeter RMS against the
+// control points, central meridian landed almost exactly on Virginia's
+// official -78.5°), so it's treated as exact. The CCC leg is a fitted
+// 2nd-order polynomial warp against NAD83 (RMS ~14 ft one way, ~6.5 ft the
+// other, max residual ~31 ft across the dataset) — a rigid rotate/scale/shift
+// fit alone left ~500 ft of residual, consistent with CCC being an
+// uncorrected flat-plane system whose divergence from a real curved-earth
+// projection grows smoothly with distance from the network's center; the
+// 2nd-order surface captures that curvature-driven divergence well.
+const LCC_A = 6378137.0, LCC_F = 0.003352810681182319; // GRS80/NAD83 ellipsoid
+const LCC_E2 = LCC_F * (2 - LCC_F), LCC_E = Math.sqrt(LCC_E2);
+const LCC_N = 0.6069248471893008;
+const LCC_LAMBDA0 = -78.5 * Math.PI/180;
+const LCC_FE = 11482916.666966576;
+const LCC_FN = 31091479.15264256;
+const LCC_C = 41955857.829063185;
 
-// General abridged-Molodensky delta, evaluated at a point given in the
-// SOURCE datum. Returns {dLat, dLon} in degrees to ADD to the source
-// coordinate to get the target coordinate.
-function molodenskyDelta(latDeg, lonDeg, aSrc, fSrc, aDst, fDst, dX, dY, dZ){
-  const da = aDst - aSrc, df = fDst - fSrc;
+function lccTFunc(phiRad){
+  return Math.tan(Math.PI/4 - phiRad/2) / Math.pow((1 - LCC_E*Math.sin(phiRad)) / (1 + LCC_E*Math.sin(phiRad)), LCC_E/2);
+}
+// Lat/Lon (degrees) -> NAD83 Northing/Easting (feet). Essentially exact.
+function latLonToNad83(latDeg, lonDeg){
   const phi = latDeg * Math.PI/180, lam = lonDeg * Math.PI/180;
-  const e2 = 2*fSrc - fSrc*fSrc;
-  const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi), sinLam = Math.sin(lam), cosLam = Math.cos(lam);
-  const rho = aSrc * (1 - e2) / Math.pow(1 - e2*sinPhi*sinPhi, 1.5); // meridian radius
-  const nu = aSrc / Math.sqrt(1 - e2*sinPhi*sinPhi);                  // prime vertical radius
-  const dLatRad = (-dX*sinPhi*cosLam - dY*sinPhi*sinLam + dZ*cosPhi +
-                   (aSrc*df + fSrc*da) * Math.sin(2*phi)) / rho;
-  const dLonRad = (-dX*sinLam + dY*cosLam) / (nu * cosPhi);
-  return { dLat: dLatRad * 180/Math.PI, dLon: dLonRad * 180/Math.PI };
+  const dlam = lam - LCC_LAMBDA0;
+  const T = Math.pow(lccTFunc(phi), LCC_N);
+  const theta = LCC_N * dlam;
+  return {
+    easting: LCC_FE + LCC_C*T*Math.sin(theta),
+    northing: LCC_FN - LCC_C*T*Math.cos(theta)
+  };
+}
+// NAD83 Northing/Easting (feet) -> Lat/Lon (degrees). Essentially exact.
+function nad83ToLatLon(northing, easting){
+  const xp = easting - LCC_FE, yp = northing - LCC_FN;
+  const rho = Math.sqrt(xp*xp + yp*yp);
+  const theta = Math.atan2(xp, -yp);
+  let t = Math.pow(rho / LCC_C, 1/LCC_N);
+  let phi = Math.PI/2 - 2*Math.atan(t);
+  for(let i=0;i<10;i++){
+    const esinphi = LCC_E * Math.sin(phi);
+    phi = Math.PI/2 - 2*Math.atan(t * Math.pow((1-esinphi)/(1+esinphi), LCC_E/2));
+  }
+  const lam = theta/LCC_N + LCC_LAMBDA0;
+  return { lat: phi*180/Math.PI, lon: lam*180/Math.PI };
 }
 
-function nad27ToWgs84DeltaLat(latDeg, lonDeg){
-  return molodenskyDelta(latDeg, lonDeg, NAD27_A, NAD27_F, WGS84_A, WGS84_F,
-                          NAD27_TO_WGS84_DX, NAD27_TO_WGS84_DY, NAD27_TO_WGS84_DZ).dLat;
+// Fitted 2nd-order polynomial surfaces, NAD83 <-> CCC (both in feet).
+const CCC_MEAN_NE = 10361612.075299999, CCC_MEAN_NN = 3570521.2998897433;
+const CCC_COEF_E = [11400.592296569628, 99885.29037046221, -4068.6196470509535, 13.233485899084673, 361.5271239088188, -12.150714937163912];
+const CCC_COEF_N = [-12298.083624996745, 4069.138825475358, 99908.45538752226, -182.51043609827406, 15.67987656297831, 0.9150766851169909];
+const NAD_MEAN_CE = 11399.083976923075, NAD_MEAN_CN = -12799.96646923077;
+const NAD_COEF_E = [10361589.430171015, 99953.5091650408, 4069.5154719087172, 8.660155233043994, -362.84030402713574, -1.4210333913566022];
+const NAD_COEF_N = [3570019.759317104, -4071.9054701241676, 99909.046139564, 181.37660299307586, 15.42305144873073, 1.1597877682434026];
+
+function poly2Eval(coef, x0, y0, meanX, meanY){
+  const x = (x0-meanX)/1e5, y = (y0-meanY)/1e5;
+  return coef[0] + coef[1]*x + coef[2]*y + coef[3]*x*x + coef[4]*x*y + coef[5]*y*y;
 }
-function nad27ToWgs84DeltaLon(latDeg, lonDeg){
-  return molodenskyDelta(latDeg, lonDeg, NAD27_A, NAD27_F, WGS84_A, WGS84_F,
-                          NAD27_TO_WGS84_DX, NAD27_TO_WGS84_DY, NAD27_TO_WGS84_DZ).dLon;
+// NAD83 Northing/Easting (feet) -> CCC Northing/Easting (feet)
+function nad83ToCcc(northing, easting){
+  return {
+    easting: poly2Eval(CCC_COEF_E, easting, northing, CCC_MEAN_NE, CCC_MEAN_NN),
+    northing: poly2Eval(CCC_COEF_N, easting, northing, CCC_MEAN_NE, CCC_MEAN_NN)
+  };
 }
-// Reverse direction: evaluated at the WGS84 point, with negated shift and
-// swapped ellipsoids — the standard way to approximate the inverse of a
-// block-shift datum transformation.
-function wgs84ToNad27(latDeg, lonDeg){
-  const d = molodenskyDelta(latDeg, lonDeg, WGS84_A, WGS84_F, NAD27_A, NAD27_F,
-                             -NAD27_TO_WGS84_DX, -NAD27_TO_WGS84_DY, -NAD27_TO_WGS84_DZ);
-  return { lat: latDeg + d.dLat, lon: lonDeg + d.dLon };
+// CCC Northing/Easting (feet) -> NAD83 Northing/Easting (feet)
+function cccToNad83(northing, easting){
+  return {
+    easting: poly2Eval(NAD_COEF_E, easting, northing, NAD_MEAN_CE, NAD_MEAN_CN),
+    northing: poly2Eval(NAD_COEF_N, easting, northing, NAD_MEAN_CE, NAD_MEAN_CN)
+  };
 }
 
 // downscale + compress a File/Blob image to keep IndexedDB size sane
@@ -537,17 +573,18 @@ const THEME_VARS = [
   { key: '--accent2', label: 'Secondary accent' },
   { key: '--line',    label: 'Borders / lines' },
   { key: '--danger',  label: 'Danger / delete' },
-  { key: '--good',    label: 'Good / success' }
+  { key: '--good',    label: 'Good / success' },
+  { key: '--btn-bg',  label: 'Button background' }
 ];
 const DEFAULT_COLORS = {
   '--bg':'#f4f2ec', '--panel':'#ffffff', '--ink':'#1a1a18', '--muted':'#6b6a63',
   '--accent':'#1e3a2f', '--accent2':'#c96a2e', '--line':'#d8d4c8',
-  '--danger':'#a13a2e', '--good':'#2e6b3e'
+  '--danger':'#a13a2e', '--good':'#2e6b3e', '--btn-bg':'#ffffff'
 };
 const HC_COLORS = {
   '--bg':'#ffffff', '--panel':'#ffffff', '--ink':'#000000', '--muted':'#333333',
   '--accent':'#003300', '--accent2':'#a34700', '--line':'#000000',
-  '--danger':'#8b0000', '--good':'#004d00'
+  '--danger':'#8b0000', '--good':'#004d00', '--btn-bg':'#ffffff'
 };
 
 function rgbToHex(rgbStr){
@@ -757,57 +794,47 @@ function setEntryMode(mode){
   updateSaveButtonState();
 }
 btnToggleManual.onclick = () => setEntryMode(entryMode === 'gps' ? 'manual' : 'gps');
-function updateNad27Readout(){
-  const lat = parseFloat(manualLat.value);
-  const lon = parseFloat(manualLon.value);
-  const el = document.getElementById('nad27Readout');
-  if(isNaN(lat) || isNaN(lon)){ el.textContent = ''; return; }
-  const nad27 = wgs84ToNad27(lat, lon);
-  el.textContent = `NAD27: ${nad27.lat.toFixed(7)}, ${nad27.lon.toFixed(7)}`;
-}
-manualLat.addEventListener('input', () => { updateSaveButtonState(); updateNad27Readout(); });
-manualLon.addEventListener('input', () => { updateSaveButtonState(); updateNad27Readout(); });
+manualLat.addEventListener('input', updateSaveButtonState);
+manualLon.addEventListener('input', updateSaveButtonState);
 
-// Placeholders — tell me what these should actually do and I'll wire them up.
-document.getElementById('btnCCCNorth').onclick = () => {
+// Input: Latitude/Longitude -> fills Nad83 Northing/Easting and CCC Northing/Easting
+document.getElementById('btnProcessCccNad83').onclick = () => {
   const lat = parseFloat(manualLat.value);
-  if(isNaN(lat)){ toast('Enter a Latitude value first.'); return; }
-  const existingLon = parseFloat(manualLon.value);
-  const lonForShift = isNaN(existingLon) ? -82.3834411111111 : existingLon;
-  const nad27 = wgs84ToNad27(lat, lonForShift);
-  const northing = (nad27.lat - 37.0999502777778) * 3600 * 101.1383;
-  document.getElementById('cccNorthing').value = northing.toFixed(2);
-};
-document.getElementById('btnCCCEast').onclick = () => {
   const lon = parseFloat(manualLon.value);
-  if(isNaN(lon)){ toast('Enter a Longitude value first.'); return; }
-  const existingLat = parseFloat(manualLat.value);
-  const latForShift = isNaN(existingLat) ? 37.0999502777778 : existingLat;
-  const nad27 = wgs84ToNad27(latForShift, lon);
-  const easting = (82.3834411111111 - Math.abs(nad27.lon)) * 3600 * 101.383;
-  document.getElementById('cccEasting').value = easting.toFixed(2);
-};
-document.getElementById('btnCCCLatitude').onclick = () => {
-  const northing = parseFloat(document.getElementById('cccNorthing').value);
-  if(isNaN(northing)){ toast('Enter a CCC Northing value first.'); return; }
-  const rawLat = (northing / 101.1383 / 3600) + 37.0999502777778; // NAD27
-  const existingLon = parseFloat(manualLon.value);
-  const lonForShift = isNaN(existingLon) ? -82.3834411111111 : existingLon;
-  const shifted = rawLat + nad27ToWgs84DeltaLat(rawLat, lonForShift);
-  manualLat.value = shifted.toFixed(7);
+  if(isNaN(lat) || isNaN(lon)){ toast('Enter Latitude and Longitude first.'); return; }
+  const nad = latLonToNad83(lat, lon);
+  document.getElementById('nad83Northing').value = nad.northing.toFixed(2);
+  document.getElementById('nad83Easting').value = nad.easting.toFixed(2);
+  const ccc = nad83ToCcc(nad.northing, nad.easting);
+  document.getElementById('cccNorthing').value = ccc.northing.toFixed(2);
+  document.getElementById('cccEasting').value = ccc.easting.toFixed(2);
   updateSaveButtonState();
-  updateNad27Readout();
 };
-document.getElementById('btnCCCLongitude').onclick = () => {
-  const easting = parseFloat(document.getElementById('cccEasting').value);
-  if(isNaN(easting)){ toast('Enter a CCC Easting value first.'); return; }
-  const rawLon = -(82.3834411111111 - (easting / 81.017 / 3600)); // NAD27
-  const existingLat = parseFloat(manualLat.value);
-  const latForShift = isNaN(existingLat) ? 37.0999502777778 : existingLat;
-  const shifted = rawLon + nad27ToWgs84DeltaLon(latForShift, rawLon);
-  manualLon.value = shifted.toFixed(7);
+// Input: CCC Northing/Easting -> fills Nad83 Northing/Easting and Latitude/Longitude
+document.getElementById('btnProcessLatLonNad83').onclick = () => {
+  const cccN = parseFloat(document.getElementById('cccNorthing').value);
+  const cccE = parseFloat(document.getElementById('cccEasting').value);
+  if(isNaN(cccN) || isNaN(cccE)){ toast('Enter CCC Northing and Easting first.'); return; }
+  const nad = cccToNad83(cccN, cccE);
+  document.getElementById('nad83Northing').value = nad.northing.toFixed(2);
+  document.getElementById('nad83Easting').value = nad.easting.toFixed(2);
+  const ll = nad83ToLatLon(nad.northing, nad.easting);
+  manualLat.value = ll.lat.toFixed(7);
+  manualLon.value = ll.lon.toFixed(7);
   updateSaveButtonState();
-  updateNad27Readout();
+};
+// Input: Nad83 Northing/Easting -> fills Latitude/Longitude and CCC Northing/Easting
+document.getElementById('btnProcessLatLonCcc').onclick = () => {
+  const nadN = parseFloat(document.getElementById('nad83Northing').value);
+  const nadE = parseFloat(document.getElementById('nad83Easting').value);
+  if(isNaN(nadN) || isNaN(nadE)){ toast('Enter Nad83 Northing and Easting first.'); return; }
+  const ll = nad83ToLatLon(nadN, nadE);
+  manualLat.value = ll.lat.toFixed(7);
+  manualLon.value = ll.lon.toFixed(7);
+  const ccc = nad83ToCcc(nadN, nadE);
+  document.getElementById('cccNorthing').value = ccc.northing.toFixed(2);
+  document.getElementById('cccEasting').value = ccc.easting.toFixed(2);
+  updateSaveButtonState();
 };
 
 function updateSaveButtonState(){
@@ -952,9 +979,10 @@ btnSavePoint.onclick = async () => {
   gpsSamples = []; bestFix = null; updateGpsReadout();
   btnStartGps.textContent = 'Start GPS Lock';
   manualLat.value = ''; manualLon.value = '';
-  updateNad27Readout();
   document.getElementById('cccNorthing').value = '';
   document.getElementById('cccEasting').value = '';
+  document.getElementById('nad83Northing').value = '';
+  document.getElementById('nad83Easting').value = '';
   setEntryMode('gps');
   await loadBoundaries();
   populateBoundarySelect();
