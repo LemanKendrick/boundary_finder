@@ -463,24 +463,22 @@ function sanitizeFilename(s){
 }
 
 // ---------- Lat/Lon <-> NAD83 (Lambert Conformal Conic) <-> CCC ----------
-// Fitted from a 39-point control-point dataset (2007 control network) spanning
-// a wide multi-county area. The NAD83 Northing/Easting leg is a true Lambert
-// Conformal Conic projection (fitted to sub-millimeter RMS against the
-// control points, central meridian landed almost exactly on Virginia's
-// official -78.5°), so it's treated as exact. The CCC leg is a fitted
-// 2nd-order polynomial warp against NAD83 (RMS ~14 ft one way, ~6.5 ft the
-// other, max residual ~31 ft across the dataset) — a rigid rotate/scale/shift
-// fit alone left ~500 ft of residual, consistent with CCC being an
-// uncorrected flat-plane system whose divergence from a real curved-earth
-// projection grows smoothly with distance from the network's center; the
-// 2nd-order surface captures that curvature-driven divergence well.
+// Fitted from a 34-point control-point dataset (2007 control network),
+// restricted to the actual area of interest. The NAD83 Northing/Easting leg
+// is a true Lambert Conformal Conic projection (fitted to sub-millimeter RMS
+// against the control points, central meridian landed almost exactly on
+// Virginia's official -78.5°), so it's treated as exact. The CCC leg is a
+// fitted 2nd-order polynomial warp against NAD83 (RMS ~1.5-1.7 ft, max
+// residual ~4 ft across the dataset) — restricting the fit to this smaller
+// area (dropping 4 far-flung corner points and one other) improved this leg
+// substantially over an earlier wide-area fit (RMS ~14 ft, max ~31 ft).
 const LCC_A = 6378137.0, LCC_F = 0.003352810681182319; // GRS80/NAD83 ellipsoid
 const LCC_E2 = LCC_F * (2 - LCC_F), LCC_E = Math.sqrt(LCC_E2);
-const LCC_N = 0.6069248471893008;
+const LCC_N = 0.6069247793496589;
 const LCC_LAMBDA0 = -78.5 * Math.PI/180;
-const LCC_FE = 11482916.666966576;
-const LCC_FN = 31091479.15264256;
-const LCC_C = 41955857.829063185;
+const LCC_FE = 11482916.67269285;
+const LCC_FN = 31091482.35730695;
+const LCC_C = 41955860.733147025;
 
 function lccTFunc(phiRad){
   return Math.tan(Math.PI/4 - phiRad/2) / Math.pow((1 - LCC_E*Math.sin(phiRad)) / (1 + LCC_E*Math.sin(phiRad)), LCC_E/2);
@@ -512,12 +510,12 @@ function nad83ToLatLon(northing, easting){
 }
 
 // Fitted 2nd-order polynomial surfaces, NAD83 <-> CCC (both in feet).
-const CCC_MEAN_NE = 10361612.075299999, CCC_MEAN_NN = 3570521.2998897433;
-const CCC_COEF_E = [11400.592296569628, 99885.29037046221, -4068.6196470509535, 13.233485899084673, 361.5271239088188, -12.150714937163912];
-const CCC_COEF_N = [-12298.083624996745, 4069.138825475358, 99908.45538752226, -182.51043609827406, 15.67987656297831, 0.9150766851169909];
-const NAD_MEAN_CE = 11399.083976923075, NAD_MEAN_CN = -12799.96646923077;
-const NAD_COEF_E = [10361589.430171015, 99953.5091650408, 4069.5154719087172, 8.660155233043994, -362.84030402713574, -1.4210333913566022];
-const NAD_COEF_N = [3570019.759317104, -4071.9054701241676, 99909.046139564, 181.37660299307586, 15.42305144873073, 1.1597877682434026];
+const CCC_MEAN_NE = 10373135.76352941, CCC_MEAN_NN = 3573211.832705882;
+const CCC_COEF_E = [22802.457873000727, 99890.98349841493, -4026.5429591044285, 14.655407233288313, 361.8590642806217, -14.28623810232836];
+const CCC_COEF_N = [-9142.878671294284, 4027.4443267920738, 99921.92143790842, -181.4104370517706, 14.764951488817786, -1.0721688464790453];
+const NAD_MEAN_CE = 22789.453244117645, NAD_MEAN_CN = -9278.740602941178;
+const NAD_COEF_E = [10373117.353241133, 99946.6955897937, 4027.3247089760357, 7.074904160060544, -362.91786910661796, -0.4455904599982548];
+const NAD_COEF_N = [3573076.6022555158, -4028.4890216264635, 99914.84152691884, 181.643621925251, 14.859077560626304, 0.80034552103989];
 
 function poly2Eval(coef, x0, y0, meanX, meanY){
   const x = (x0-meanX)/1e5, y = (y0-meanY)/1e5;
