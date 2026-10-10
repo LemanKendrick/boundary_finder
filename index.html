@@ -131,6 +131,38 @@
   .color-row input[type=color]{
     width:44px; height:32px; border:1px solid var(--line); border-radius:6px; padding:0; background:none; cursor:pointer;
   }
+  .hdr-btns{display:flex; align-items:center; gap:2px;}
+  #helpOverlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:95;
+    align-items:flex-start; justify-content:center; padding:12px; overflow-y:auto;
+  }
+  #helpOverlay.show{display:flex;}
+  #helpPanel{
+    background:var(--panel); color:var(--ink); border-radius:12px; max-width:620px; width:100%;
+    box-shadow:0 8px 24px rgba(0,0,0,0.3);
+  }
+  #helpPanel .help-top{
+    position:sticky; top:0; z-index:1; background:var(--panel); border-radius:12px 12px 0 0;
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:12px 16px; border-bottom:1px solid var(--line);
+  }
+  #helpPanel .help-top h2{margin:0; font-size:1.05rem; color:var(--accent);}
+  .hc-light #helpPanel .help-top h2{color:var(--ink);}
+  #helpBody{padding:8px 16px 18px;}
+  .help-content{font-size:.92rem; line-height:1.5;}
+  .help-content p{margin:6px 0;}
+  .help-content ul, .help-content ol{margin:6px 0; padding-left:20px;}
+  .help-content li{margin:3px 0;}
+  .help-content details{border-bottom:1px solid var(--line); padding:6px 0;}
+  .help-content summary{cursor:pointer; font-weight:600; padding:6px 0; color:var(--accent);}
+  .hc-light .help-content summary{color:var(--ink);}
+  .help-content code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.85em;
+    background:rgba(127,127,127,0.15); padding:1px 5px; border-radius:4px;
+  }
+  .help-content .note{
+    border-left:3px solid var(--accent2); padding:4px 10px; margin:8px 0; background:rgba(127,127,127,0.08);
+  }
   .photothumbs img, .pc-thumbs img{cursor:pointer;}
   #lightbox{
     display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92);
@@ -151,8 +183,24 @@
 
 <header>
   <h1>📍 Boundary Point Finder</h1>
-  <button class="icon" id="btnAppearance" title="Appearance">🎨</button>
+  <div class="hdr-btns">
+    <button class="icon" id="btnHelp" title="Help">❓</button>
+    <button class="icon" id="btnAppearance" title="Appearance">🎨</button>
+  </div>
 </header>
+
+<div id="helpOverlay">
+  <div id="helpPanel">
+    <div class="help-top">
+      <h2>Help</h2>
+      <div class="row" style="flex:0 0 auto; flex-wrap:nowrap;">
+        <button class="small-btn" id="btnHelpFullPage" style="flex:0 0 auto;">Open full page</button>
+        <button class="small-btn" id="btnCloseHelp" style="flex:0 0 auto;">✕ Close</button>
+      </div>
+    </div>
+    <div id="helpBody"><p>Loading help…</p></div>
+  </div>
+</div>
 
 <div id="appearanceOverlay">
   <div id="appearancePanel">
@@ -649,6 +697,37 @@ document.getElementById('btnCloseAppearance').onclick = () => {
 document.getElementById('appearanceOverlay').addEventListener('click', e => {
   if(e.target.id === 'appearanceOverlay') document.getElementById('appearanceOverlay').classList.remove('show');
 });
+// ---------- help (content lives in help.html, precached by the service worker) ----------
+const helpOverlay = document.getElementById('helpOverlay');
+const helpBody = document.getElementById('helpBody');
+let helpLoaded = false;
+
+async function loadHelp(){
+  if(helpLoaded) return;
+  try{
+    const resp = await fetch('help.html');
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const doc = new DOMParser().parseFromString(await resp.text(), 'text/html');
+    const content = doc.querySelector('.help-content');
+    if(!content) throw new Error('help content not found');
+    helpBody.innerHTML = '';
+    helpBody.appendChild(document.importNode(content, true));
+    helpLoaded = true;
+  }catch(err){
+    console.warn('Help load failed:', err);
+    helpBody.innerHTML = '<p>The help file could not be loaded. It is available once the app is opened from its web address (and it works offline after the first online visit).</p>';
+  }
+}
+document.getElementById('btnHelp').onclick = () => {
+  helpOverlay.classList.add('show');
+  loadHelp();
+};
+document.getElementById('btnCloseHelp').onclick = () => helpOverlay.classList.remove('show');
+document.getElementById('btnHelpFullPage').onclick = () => window.open('help.html', '_blank');
+helpOverlay.addEventListener('click', e => {
+  if(e.target === helpOverlay) helpOverlay.classList.remove('show');
+});
+
 document.getElementById('btnPresetDefault').onclick = () => { saveColors(DEFAULT_COLORS); renderColorRows(); };
 document.getElementById('btnPresetHC').onclick = () => { saveColors(HC_COLORS); renderColorRows(); };
 document.getElementById('btnResetColors').onclick = () => {

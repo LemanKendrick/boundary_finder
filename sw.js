@@ -1,11 +1,12 @@
 // Boundary Point Finder — service worker
 // Cache-invalidation pattern: bump CACHE_NAME on every deploy that changes
 // any of the files below. Old caches are purged in 'activate'.
-const CACHE_NAME = 'boundary-finder-v28';
+const CACHE_NAME = 'boundary-finder-v29';
 
 const SHELL_FILES = [
   './',
   'index.html',
+  'help.html',
   'manifest.json',
   'icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'

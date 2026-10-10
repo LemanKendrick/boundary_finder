@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boundary Point Finder — Help</title>
+<style>
+  /* Used only when this page is opened on its own; inside the app the
+     content below is styled by the app's own theme. */
+  body{margin:0; padding:16px; background:#f4f2ec; color:#1a1a18;
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .help-wrap{max-width:640px; margin:0 auto; background:#fff; border:1px solid #d8d4c8; border-radius:12px; padding:8px 16px 18px;}
+  h1{font-size:1.2rem; color:#1e3a2f; margin:12px 0 4px;}
+  .help-content{font-size:.92rem; line-height:1.5;}
+  .help-content p{margin:6px 0;}
+  .help-content ul, .help-content ol{margin:6px 0; padding-left:20px;}
+  .help-content li{margin:3px 0;}
+  .help-content details{border-bottom:1px solid #d8d4c8; padding:6px 0;}
+  .help-content summary{cursor:pointer; font-weight:600; padding:6px 0; color:#1e3a2f;}
+  .help-content code{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.85em; background:rgba(127,127,127,.15); padding:1px 5px; border-radius:4px;}
+  .help-content .note{border-left:3px solid #c96a2e; padding:4px 10px; margin:8px 0; background:rgba(127,127,127,.08);}
+</style>
+</head>
+<body>
+<div class="help-wrap">
+<h1>📍 Boundary Point Finder — Help</h1>
+<div class="help-content">
+
+<details open>
+<summary>Quick start</summary>
+<p><b>Save a point in the field</b></p>
+<ol>
+  <li>On the <b>New</b> tab, pick a boundary (or choose <b>➕ New boundary…</b> and type a name).</li>
+  <li>Give the point a name, such as "NE corner".</li>
+  <li>Tap <b>Start GPS Lock</b> and wait about 20 seconds for the accuracy badge to settle.</li>
+  <li>Add photos: a close-up of the marker and a wider shot showing nearby fixed features.</li>
+  <li>Add notes if useful, then tap <b>💾 Save Point</b>.</li>
+</ol>
+<p><b>Find it again later</b></p>
+<ol>
+  <li>Open the <b>Points</b> tab and tap the point.</li>
+  <li>Use <b>Open in Maps app</b> to drive or walk to the general area.</li>
+  <li>Once close, tap <b>🧭 Navigate to Point</b> for live distance and direction, then use the photos and notes to find the actual corner.</li>
+</ol>
+</details>
+
+<details>
+<summary>Capturing a point with GPS</summary>
+<ul>
+  <li><b>Boundary:</b> the dropdown lists existing boundaries. Typing a name that already exists reuses that boundary. It stays selected after each save, so you can capture several points in a row. Points are numbered per boundary (pt 1, 2, 3…).</li>
+  <li><b>Start GPS Lock</b> runs for about 20 seconds and keeps the <b>best</b> fix (smallest reported error), not the last one. Tap <b>Re-lock GPS</b> to try again. Save stays disabled until a fix is available.</li>
+  <li><b>Accuracy badge:</b> green is 5 m or better, amber is up to 12 m, red is worse. Open sky away from buildings and tree canopy gives the best results.</li>
+  <li><b>Confidence:</b> your own note on conditions (clear sky, some obstruction, poor signal).</li>
+  <li><b>Photos:</b> <b>📷 Add Photo</b> opens the camera or gallery. Tap a thumbnail to enlarge it, or tap ✕ to remove it. Photos are shrunk to 1280 px to save space.</li>
+  <li>Good photo set: marker close-up, a wider shot from about 10–15 ft back, and a view looking back along the way you walked in.</li>
+</ul>
+</details>
+
+<details>
+<summary>Entering coordinates manually (Lat-Lon, NAD83, CCC)</summary>
+<p>Tap <b>📝 Enter Coordinates Manually</b> on the New tab. The card has three groups of fields. Each group has a button that fills in the other two groups:</p>
+<ul>
+  <li><b>Latitude / Longitude → Process CCC &amp; Nad83</b> fills the Nad83 and CCC Northing/Easting fields.</li>
+  <li><b>CCC Northing / Easting → Process Lat-Lon &amp; Nad83</b> fills Latitude/Longitude and the Nad83 fields.</li>
+  <li><b>Nad83 Northing / Easting → Process Lat-Lon &amp; CCC</b> fills Latitude/Longitude and the CCC fields.</li>
+</ul>
+<p>Enter one set, tap its button, check the other values, then save.</p>
+<div class="note">
+  <b>Typing alone does not convert.</b> You must tap the button. Navigation uses only the Latitude/Longitude fields, so make sure they are filled (and valid) before saving.
+</div>
+<ul>
+  <li>Latitude and longitude are decimal degrees. Longitude is negative (west), for example <code>-82.38</code>.</li>
+  <li>Any CCC Northing/Easting values in the fields when you save are stored with the point and shown on its detail screen and in exports. If you converted <i>from</i> lat/lon, those stored CCC values are computed, not original record values.</li>
+  <li>Manual points show a <b>manual</b> badge instead of a GPS accuracy badge, and have no Confidence setting.</li>
+</ul>
+</details>
+
+<details>
+<summary>How accurate are the conversions?</summary>
+<ul>
+  <li><b>Lat/Lon ↔ Nad83:</b> a Lambert Conformal Conic projection matching Virginia State Plane (South zone, feet). It reproduced the control points to well under 0.01 ft, so treat it as exact. Nad83 and the WGS84 used by phone GPS and Google Maps agree to within a couple of meters here.</li>
+  <li><b>CCC ↔ Nad83:</b> a fitted curve based on 34 control points from the 2007 control network. Inside the control area, the fit residuals are about 1.5–2 ft RMS, with a worst case of about 4 ft. The control points cover roughly 36.5°–37.6° N and 83.0°–81.7° W. Outside that area, error grows, so treat results there as approximate.</li>
+  <li>Phone GPS (typically 10–25 ft) is less precise than the CCC fit, so the final recovery of a corner should always rely on the field notes, photos, and physical evidence.</li>
+  <li>This app is a finding aid. It is not a substitute for a survey record.</li>
+</ul>
+</details>
+
+<details>
+<summary>Points list and boundaries</summary>
+<ul>
+  <li>Use <b>Filter by boundary</b> to narrow the list. Each card shows the boundary name, point number, and accuracy badge. Tap a card to open the point.</li>
+  <li>When a single boundary is selected, <b>🗑 Delete Boundary</b> appears. It deletes the boundary and <b>all its points and photos</b> after a confirmation that shows the counts. This cannot be undone.</li>
+  <li>Points saved before boundaries existed show "(no boundary assigned)".</li>
+</ul>
+</details>
+
+<details>
+<summary>Point details and editing</summary>
+<ul>
+  <li>The detail screen shows coordinates, accuracy (or manual), any stored CCC values, photos, and notes.</li>
+  <li><b>✏️ Edit</b> lets you change the notes and add or remove photos. Use <b>Save Changes</b> to keep them or <b>Cancel</b> to discard. Coordinates, point name, and boundary can't be edited.</li>
+  <li><b>Open in Maps app</b> opens Google Maps at the saved coordinate. It needs a data connection.</li>
+  <li><b>Delete Point</b> permanently removes that one point.</li>
+</ul>
+</details>
+
+<details>
+<summary>Navigating to a point</summary>
+<ul>
+  <li>Tap <b>🧭 Navigate to Point</b> on a point's detail screen. Allow location access (and motion/orientation access if asked).</li>
+  <li>The large number is the distance (feet, switching to meters beyond about 1000 ft). The arrow points toward the saved point relative to the way your phone is facing. Without a compass reading, the app shows the true bearing from north as text instead.</li>
+  <li>The screen shows your current GPS accuracy and the saved point's accuracy. Within about 3 m the app tells you to switch to the photos.</li>
+  <li>Tap the photos on this screen to enlarge them while you compare them to what you see.</li>
+</ul>
+<p><b>Compass tips</b></p>
+<ul>
+  <li>The compass works with the phone held flat or upright.</li>
+  <li>If the arrow points backward, tap <b>🔄 Compass pointing backwards? Tap to flip</b>. The setting is remembered on this phone.</li>
+  <li>If it feels sluggish or stuck, wave the phone in a figure-8 to recalibrate.</li>
+  <li>Iron pins, vehicles, and metal objects deflect the compass. Near a marker, rely on the photos rather than the arrow.</li>
+</ul>
+</details>
+
+<details>
+<summary>Viewing photos</summary>
+<p>Tap any photo to open it full screen.</p>
+<ul>
+  <li><b>Pinch</b> to zoom (up to 5×) and <b>drag</b> to pan.</li>
+  <li><b>Double-tap</b> to jump to 2.5× zoom, and double-tap again to reset.</li>
+  <li><b>Swipe</b> left or right (or use Prev/Next) to move between photos when not zoomed in.</li>
+  <li>Tap <b>Close</b> or the dark area outside the photo to exit.</li>
+</ul>
+</details>
+
+<details>
+<summary>Export, backup, and restore</summary>
+<ul>
+  <li><b>📦 Export ZIP</b> exports the filtered boundary (or all boundaries). Each boundary gets its own folder with photos named like <code>Smith_Tract_pt1_1.jpg</code> and a <code>points.json</code> holding coordinates, accuracy, notes, CCC values, and dates. The ZIP lands in your phone's Downloads folder. Move it to the SD card with your file manager.</li>
+  <li><b>Backup JSON</b> saves everything in a form this app can restore. <b>Import</b> reads that file back in and recreates boundaries as needed.</li>
+  <li>Your data lives only in this phone's browser storage for the app. Clearing Chrome's site data erases it, so back up first.</li>
+  <li>Nothing is uploaded anywhere. The only network use is opening Google Maps links and loading the app files.</li>
+</ul>
+</details>
+
+<details>
+<summary>Appearance (🎨)</summary>
+<ul>
+  <li>Choose the <b>Default</b> or <b>High Contrast</b> preset, or adjust any of the ten colors individually, including button background.</li>
+  <li><b>Reset to Defaults</b> clears your custom colors. Colors are saved on this phone.</li>
+</ul>
+</details>
+
+<details>
+<summary>Install, offline use, and updates (Android / Chrome)</summary>
+<ul>
+  <li><b>Install:</b> open the app's web address in Chrome, tap the ⋮ menu, then <b>Install app</b> (or <b>Add to Home screen</b>).</li>
+  <li><b>Offline:</b> open the installed app once while online so it can cache itself. After that it loads without a connection. GPS lock and navigation work without cell service. Google Maps links need data.</li>
+  <li><b>Updates:</b> after a new version is published, open the app while online, swipe it out of your recent apps, and relaunch it. If it still looks old, do it once more.</li>
+</ul>
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
+<ul>
+  <li><b>GPS never locks:</b> confirm location permission is allowed for Chrome and the app, move to open sky, and wait the full 20 seconds. Tap Re-lock GPS to retry.</li>
+  <li><b>Large accuracy number (red badge):</b> move away from buildings and trees and re-lock. Note the conditions in Confidence.</li>
+  <li><b>Arrow points the wrong way:</b> use the flip button on the Navigate screen, then try the figure-8 calibration.</li>
+  <li><b>A Process button just shows a message:</b> the input group it uses is empty or invalid. Fill in that group first.</li>
+  <li><b>Export ZIP says the library failed to load:</b> connect to the internet once so the app can cache the ZIP library, then try again.</li>
+  <li><b>App looks out of date:</b> see the Updates steps above.</li>
+</ul>
+</details>
+
+</div>
+</div>
+</body>
+</html>
