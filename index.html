@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Boundary Point Finder</title>
 <meta name="theme-color" content="#1e3a2f">
 <link rel="manifest" href="manifest.json">
@@ -89,6 +89,7 @@
   .navbar{
     position:fixed; bottom:0; left:0; right:0; display:flex; background:var(--panel);
     border-top:1px solid var(--line); z-index:20;
+    padding-bottom:env(safe-area-inset-bottom, 0px);
   }
   .navbar button{
     flex:1; background:none; border:none; border-radius:0; padding:10px 4px; font-size:.72rem;
@@ -240,6 +241,9 @@
         </div>
       </div>
       <div id="manualModeFields" style="display:none;">
+        <div class="row" style="margin-bottom:4px;">
+          <button class="small-btn full" id="btnManualBackToGps">← Back to GPS</button>
+        </div>
         <label>Latitude (decimal degrees)</label>
         <input type="text" id="manualLat" placeholder="e.g. 37.774900" inputmode="decimal">
         <label>Longitude (decimal degrees)</label>
@@ -299,6 +303,7 @@
     <div class="panel">
       <div class="flex-between">
         <h2 style="margin:0;">Saved Points</h2>
+        <button class="small-btn" id="btnListToNew">➕ New Point</button>
       </div>
       <label style="margin-top:4px;">Filter by boundary</label>
       <div class="row" style="align-items:flex-end;">
@@ -750,6 +755,7 @@ function showView(name){
 document.querySelectorAll('.navbtn').forEach(b=>{
   b.onclick = () => showView(b.dataset.view);
 });
+document.getElementById('btnListToNew').onclick = () => showView('capture');
 
 // ============================================================
 // BOUNDARIES
@@ -871,6 +877,7 @@ function setEntryMode(mode){
   updateSaveButtonState();
 }
 btnToggleManual.onclick = () => setEntryMode(entryMode === 'gps' ? 'manual' : 'gps');
+document.getElementById('btnManualBackToGps').onclick = () => setEntryMode('gps');
 manualLat.addEventListener('input', updateSaveButtonState);
 manualLon.addEventListener('input', updateSaveButtonState);
 
