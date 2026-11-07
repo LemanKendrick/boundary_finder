@@ -100,7 +100,7 @@
   .view{display:none;}
   .view.active{display:block;}
   .compass-wrap{display:flex; flex-direction:column; align-items:center; padding:10px 0 4px;}
-  #compassArrow{transition:transform .15s ease-out;}
+  #compassArrow{transition:transform .1s linear;}
   .distance-big{font-size:2.3rem; font-weight:700; text-align:center; margin:6px 0; color:var(--accent);}
   .hc-light .distance-big{color:var(--ink);}
   .bearing-txt{text-align:center; color:var(--muted); font-size:.85rem;}
@@ -1472,6 +1472,10 @@ document.getElementById('btnExportZip').onclick = async () => {
 let navWatchId = null;
 let navHeading = null;
 let navTargetPoint = null;
+// Smoothing time constant (seconds). Larger = steadier but slower to follow turns.
+const COMPASS_TAU = 0.35;
+let smoothVec = null, lastOrientT = 0, lastArrowDraw = 0, arrowAngle = 0, sawAbsolute = false;
+let lastNavFix = null;
 
 document.getElementById('btnNavigateTo').onclick = () => {
   navTargetPoint = allPoints.find(x => x.id === currentDetailId);
@@ -1520,6 +1524,7 @@ function stopNavigation(){
   window.removeEventListener('deviceorientationabsolute', onOrientation, true);
   window.removeEventListener('deviceorientation', onOrientation, true);
   navHeading = null;
+  smoothVec = null; sawAbsolute = false;
 }
 // Tilt-compensated compass heading from raw device orientation angles.
 // Using alpha alone (the naive "360 - alpha" approach) only works when the
@@ -1547,6 +1552,15 @@ function computeCompassHeading(alpha, beta, gamma){
 }
 
 function onOrientation(e){
+  // Android fires both 'deviceorientationabsolute' (true compass) and
+  // 'deviceorientation' (alpha is relative to an arbitrary start). Mixing the
+  // two makes the needle jump between unrelated headings, so once absolute
+  // events are seen, ignore the relative ones.
+  if(e.type === 'deviceorientationabsolute'){
+    if(!sawAbsolute){ sawAbsolute = true; smoothVec = null; }
+  } else if(sawAbsolute && e.webkitCompassHeading == null){
+    return;
+  }
   let heading = null;
   if(e.webkitCompassHeading != null){
     heading = e.webkitCompassHeading; // iOS: already tilt-compensated
@@ -1568,10 +1582,36 @@ function onOrientation(e){
   if(heading == null) return;
   heading = ((heading % 360) + 360) % 360;
   if(localStorage.getItem('bf_compassFlip') === '1') heading = (heading + 180) % 360;
-  navHeading = heading;
+
+  // Low-pass filter on the unit vector (so 359°→1° doesn't glitch). Time-based,
+  // so it behaves the same whatever the sensor event rate is.
+  const now = performance.now();
+  const r = heading * Math.PI / 180;
+  if(!smoothVec){
+    smoothVec = { x: Math.sin(r), y: Math.cos(r) };
+  } else {
+    const dt = Math.min(0.5, (now - lastOrientT) / 1000);
+    const k = 1 - Math.exp(-dt / COMPASS_TAU);
+    smoothVec.x += k * (Math.sin(r) - smoothVec.x);
+    smoothVec.y += k * (Math.cos(r) - smoothVec.y);
+  }
+  lastOrientT = now;
+  navHeading = (Math.atan2(smoothVec.x, smoothVec.y) * 180 / Math.PI + 360) % 360;
+
+  // Redraw the arrow ~12x/sec on its own, instead of only when a GPS fix arrives.
+  if(now - lastArrowDraw > 80){ lastArrowDraw = now; drawArrow(); }
 }
 
-let lastNavFix = null;
+function drawArrow(){
+  if(!navTargetPoint || !lastNavFix) return;
+  const brg = bearingTo(lastNavFix.lat, lastNavFix.lon, navTargetPoint.lat, navTargetPoint.lon);
+  const target = navHeading != null ? (brg - navHeading + 360) % 360 : brg;
+  // Unwrap so the arrow always takes the short way round (no 359°→1° spin).
+  const diff = ((target - arrowAngle) % 360 + 540) % 360 - 180;
+  arrowAngle += diff;
+  document.getElementById('compassArrow').style.transform = `rotate(${arrowAngle}deg)`;
+}
+
 function updateNav(lat, lon, acc){
   lastNavFix = {lat, lon, acc};
   if(!navTargetPoint) return;
@@ -1579,16 +1619,13 @@ function updateNav(lat, lon, acc){
   const brg = bearingTo(lat, lon, navTargetPoint.lat, navTargetPoint.lon);
   document.getElementById('navDistance').textContent = fmtDist(dist);
 
-  const arrow = document.getElementById('compassArrow');
-  let rotate = brg;
   let headingNote = 'Compass heading unavailable — arrow shows true bearing from north.';
   if(navHeading != null){
-    rotate = (brg - navHeading + 360) % 360;
     headingNote = `Facing ${compassDirName(navHeading)} · target is ${compassDirName(brg)} (${brg.toFixed(0)}°)`;
   } else {
     headingNote = `Target bearing: ${compassDirName(brg)} (${brg.toFixed(0)}° true)`;
   }
-  arrow.style.transform = `rotate(${rotate}deg)`;
+  drawArrow();
   document.getElementById('navBearingTxt').textContent = headingNote;
   const targetAccBit = navTargetPoint.accuracy != null
     ? `<span class="accbadge ${accClass(navTargetPoint.accuracy)}">±${navTargetPoint.accuracy.toFixed(1)} m</span>`
