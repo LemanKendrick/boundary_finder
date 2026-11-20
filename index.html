@@ -7,6 +7,8 @@
 <meta name="theme-color" content="#1e3a2f">
 <link rel="manifest" href="manifest.json">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --bg:#f4f2ec; --panel:#ffffff; --ink:#1a1a18; --muted:#6b6a63;
@@ -101,6 +103,12 @@
   .view.active{display:block;}
   .compass-wrap{display:flex; flex-direction:column; align-items:center; padding:10px 0 4px;}
   #compassArrow{transition:transform .1s linear;}
+  #navMapWrap{display:none; position:relative; margin:10px 0 4px;}
+  #navMap{width:100%; height:62vh; min-height:280px; border-radius:8px; border:1px solid var(--line); background:#dcdcd4;}
+  #navMapWrap .map-btns{position:absolute; bottom:10px; left:10px; z-index:500; display:flex; gap:6px;}
+  #navMapWrap .map-btns button{padding:6px 10px; font-size:.8rem; box-shadow:var(--shadow);}
+  .nav-mode-map .compass-wrap, .nav-mode-map #flipRow{display:none;}
+  .nav-mode-map #navMapWrap{display:block;}
   .distance-big{font-size:2.3rem; font-weight:700; text-align:center; margin:6px 0; color:var(--accent);}
   .hc-light .distance-big{color:var(--ink);}
   .bearing-txt{text-align:center; color:var(--muted); font-size:.85rem;}
@@ -370,13 +378,24 @@
       </div>
       <div class="distance-big" id="navDistance">-- ft</div>
       <div class="bearing-txt" id="navBearingTxt">Waiting for GPS &amp; compass…</div>
+      <div id="navMapWrap">
+        <div id="navMap"></div>
+        <div class="map-btns">
+          <button id="btnMapRecenter" style="display:none;">⌖ Re-fit</button>
+        </div>
+      </div>
       <div class="row" style="margin-top:8px;">
+        <button class="small-btn full" id="btnNavMode">🗺 Show map</button>
+      </div>
+      <div class="row" id="flipRow" style="margin-top:8px;">
         <button class="small-btn full" id="btnFlipCompass">🔄 Compass pointing backwards? Tap to flip</button>
       </div>
       <div class="gps-readout" id="navGpsInfo" style="margin-top:14px;"></div>
       <div class="photothumbs" id="navPhotos" style="margin-top:10px;"></div>
       <p style="font-size:.8rem; color:var(--muted); text-align:center;">
-        Arrow points toward the saved point relative to your current heading.
+        Compass arrow points toward the saved point relative to your heading.
+        Under 1,000 ft the screen switches to a north-up map showing you (blue)
+        and the target (orange), zoomed to fit both.
         Use the photos above to spot the exact corner once you're close.
       </p>
     </div>
@@ -1487,6 +1506,10 @@ document.getElementById('btnNavigateTo').onclick = () => {
   document.getElementById('navPhotos').querySelectorAll('img').forEach(img => {
     img.onclick = () => openLightbox(nPhotos, +img.dataset.i);
   });
+  lastNavFix = null; navModeManual = false; mapAutoFit = true;
+  document.getElementById('btnMapRecenter').style.display = 'none';
+  clearNavMapLayers();
+  setNavMode('compass');
   startNavigation();
   showView('navigate');
 };
@@ -1612,12 +1635,111 @@ function drawArrow(){
   document.getElementById('compassArrow').style.transform = `rotate(${arrowAngle}deg)`;
 }
 
+// ---------- close-range map view ----------
+// Below MAP_ON_M the compass is replaced by a north-up map; it goes back to
+// the compass only above MAP_OFF_M (hysteresis, so GPS jitter near the
+// threshold doesn't flip the screen back and forth).
+const MAP_ON_M  = 1000 / 3.28084;   // 1,000 ft
+const MAP_OFF_M = 1100 / 3.28084;   // 1,100 ft
+const MAP_MIN_HALF_SPAN_M = 6;      // never zoom tighter than ~40 ft across
+let navMode = 'compass';            // 'compass' | 'map'
+let navModeManual = false;          // user tapped the toggle: stop auto-switching
+let navMap = null, mapYou = null, mapYouAcc = null, mapTarget = null, mapTargetAcc = null, mapLine = null;
+let mapAutoFit = true, mapFitting = false;
+
+function initNavMap(){
+  if(navMap || typeof L === 'undefined') return;
+  navMap = L.map('navMap', { zoomControl:true, attributionControl:true, maxZoom:22 });
+  const imagery = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxNativeZoom:19, maxZoom:22, attribution:'Imagery © Esri' });
+  const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxNativeZoom:19, maxZoom:22, attribution:'© OpenStreetMap' });
+  const which = localStorage.getItem('bf_mapLayer') === 'streets' ? streets : imagery;
+  which.addTo(navMap);
+  L.control.layers({ 'Aerial': imagery, 'Streets': streets }, null, { position:'topright' }).addTo(navMap);
+  navMap.on('baselayerchange', e => localStorage.setItem('bf_mapLayer', e.layer === streets ? 'streets' : 'imagery'));
+  L.control.scale({ imperial:true, metric:false, position:'bottomright' }).addTo(navMap);
+  // Any user pan/zoom pauses auto-fit until "Re-fit" is tapped.
+  navMap.on('zoomstart movestart', () => {
+    if(mapFitting) return;
+    mapAutoFit = false;
+    document.getElementById('btnMapRecenter').style.display = '';
+  });
+}
+
+function clearNavMapLayers(){
+  [mapYou, mapYouAcc, mapTarget, mapTargetAcc, mapLine].forEach(l => { if(l && navMap) navMap.removeLayer(l); });
+  mapYou = mapYouAcc = mapTarget = mapTargetAcc = mapLine = null;
+}
+
+function setNavMode(mode){
+  navMode = mode;
+  document.getElementById('view-navigate').classList.toggle('nav-mode-map', mode === 'map');
+  document.getElementById('btnNavMode').textContent = mode === 'map' ? '🧭 Show compass' : '🗺 Show map';
+  if(mode === 'map'){
+    initNavMap();
+    if(!navMap){ navModeManual = true; toast('Map library not loaded — open the app once with a connection.'); return setNavMode('compass'); }
+    setTimeout(() => { navMap.invalidateSize(); mapAutoFit = true; updateNavMap(); }, 50);
+  }
+}
+
+document.getElementById('btnNavMode').onclick = () => {
+  navModeManual = true;
+  setNavMode(navMode === 'map' ? 'compass' : 'map');
+};
+document.getElementById('btnMapRecenter').onclick = () => {
+  mapAutoFit = true;
+  document.getElementById('btnMapRecenter').style.display = 'none';
+  updateNavMap();
+};
+
+function updateNavMap(){
+  if(navMode !== 'map' || !navMap || !navTargetPoint) return;
+  const t = [navTargetPoint.lat, navTargetPoint.lon];
+  if(!mapTarget){
+    mapTarget = L.circleMarker(t, { radius:9, color:'#fff', weight:3, fillColor:'#e06a1b', fillOpacity:1 })
+      .bindTooltip(navTargetPoint.name, { permanent:false }).addTo(navMap);
+    if(navTargetPoint.accuracy != null){
+      mapTargetAcc = L.circle(t, { radius:navTargetPoint.accuracy, color:'#e06a1b', weight:1, fillOpacity:.08, dashArray:'4 4', interactive:false }).addTo(navMap);
+    }
+  }
+  if(!lastNavFix){ mapFitting = true; navMap.setView(t, 19, { animate:false }); mapFitting = false; return; }
+  const y = [lastNavFix.lat, lastNavFix.lon];
+  if(!mapYou){
+    mapYouAcc = L.circle(y, { radius:lastNavFix.acc, color:'#1e6fd9', weight:1, fillOpacity:.12, interactive:false }).addTo(navMap);
+    mapLine = L.polyline([y, t], { color:'#ffffff', weight:2, dashArray:'6 6', interactive:false }).addTo(navMap);
+    mapYou = L.circleMarker(y, { radius:8, color:'#fff', weight:3, fillColor:'#1e6fd9', fillOpacity:1, interactive:false }).addTo(navMap);
+  } else {
+    mapYou.setLatLng(y);
+    mapYouAcc.setLatLng(y).setRadius(lastNavFix.acc);
+    mapLine.setLatLngs([y, t]);
+  }
+  if(mapAutoFit){
+    // Box around both points, padded out to a minimum span so it doesn't
+    // zoom past the point of being useful when you're standing on it.
+    const midLat = (y[0] + t[0]) / 2, midLon = (y[1] + t[1]) / 2;
+    const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos(midLat * Math.PI / 180);
+    const halfLat = Math.max(Math.abs(y[0] - t[0]) / 2, MAP_MIN_HALF_SPAN_M / mPerDegLat);
+    const halfLon = Math.max(Math.abs(y[1] - t[1]) / 2, MAP_MIN_HALF_SPAN_M / mPerDegLon);
+    mapFitting = true;
+    navMap.fitBounds([[midLat - halfLat, midLon - halfLon], [midLat + halfLat, midLon + halfLon]],
+      { padding:[40, 40], maxZoom:22, animate:true, duration:.4 });
+    setTimeout(() => { mapFitting = false; }, 500);
+  }
+}
+
 function updateNav(lat, lon, acc){
   lastNavFix = {lat, lon, acc};
   if(!navTargetPoint) return;
   const dist = haversine(lat, lon, navTargetPoint.lat, navTargetPoint.lon);
   const brg = bearingTo(lat, lon, navTargetPoint.lat, navTargetPoint.lon);
   document.getElementById('navDistance').textContent = fmtDist(dist);
+  if(!navModeManual){
+    if(navMode === 'compass' && dist < MAP_ON_M) setNavMode('map');
+    else if(navMode === 'map' && dist > MAP_OFF_M) setNavMode('compass');
+  }
+  updateNavMap();
 
   let headingNote = 'Compass heading unavailable — arrow shows true bearing from north.';
   if(navHeading != null){
